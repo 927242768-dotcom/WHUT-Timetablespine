@@ -43,7 +43,7 @@ final class UpdateManager {
         try {
             return context.getPackageManager().getPackageInfo(context.getPackageName(), 0).versionName;
         } catch (Exception e) {
-            return "1.3.0";
+            return "1.3.1";
         }
     }
 

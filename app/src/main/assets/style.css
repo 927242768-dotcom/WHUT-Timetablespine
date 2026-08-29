@@ -8,18 +8,20 @@
 :root[data-theme="green"]{--primary:#159873;--primary-2:#59c39e;--primary-soft:#e9f8f2}
 :root[data-theme="orange"]{--primary:#e18138;--primary-2:#f1ad62;--primary-soft:#fff2e8}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-html,body{margin:0;min-height:100%;color:var(--text);background:var(--bg)}
-body{font-family:system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;overflow-x:hidden;position:relative}
-body::before,body::after{content:"";position:fixed;pointer-events:none;z-index:0;border-radius:999px;filter:blur(56px);will-change:transform}
-body::before{width:330px;height:330px;right:-135px;top:70px;background:radial-gradient(circle at 35% 35%,rgba(112,178,255,.34),rgba(151,117,255,.18) 45%,rgba(255,255,255,0) 72%);animation:ambientFloatA 13s ease-in-out infinite alternate}
-body::after{width:360px;height:360px;left:-175px;top:46%;background:radial-gradient(circle at 65% 50%,rgba(117,221,202,.18),rgba(255,189,132,.15) 42%,rgba(255,255,255,0) 72%);animation:ambientFloatB 16s ease-in-out infinite alternate}
-@keyframes ambientFloatA{from{transform:translate3d(0,-14px,0) scale(.96)}to{transform:translate3d(-26px,42px,0) scale(1.12)}}
-@keyframes ambientFloatB{from{transform:translate3d(0,18px,0) scale(1)}to{transform:translate3d(42px,-36px,0) scale(1.1)}}
-@media(prefers-reduced-motion:reduce){body::before,body::after{animation:none}}
+html,body{margin:0;min-height:100%;color:var(--text)}
+html{background:var(--bg)}
+body{font-family:system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;overflow-x:hidden;position:relative;background:linear-gradient(125deg,#f7f9ff 0%,#eef6ff 24%,#f8f1ff 49%,#effaf7 72%,#fff8f1 100%);background-size:320% 320%;animation:ambientGradient 11s ease-in-out infinite}
+body::before,body::after{content:"";position:fixed;pointer-events:none;z-index:0;border-radius:999px;filter:blur(52px);will-change:transform}
+body::before{width:350px;height:350px;right:-135px;top:55px;background:radial-gradient(circle at 35% 35%,rgba(102,174,255,.28),rgba(149,112,255,.16) 45%,rgba(255,255,255,0) 72%);animation:ambientFloatA 8.5s ease-in-out infinite alternate}
+body::after{width:380px;height:380px;left:-175px;top:43%;background:radial-gradient(circle at 65% 50%,rgba(105,220,198,.16),rgba(255,182,120,.14) 42%,rgba(255,255,255,0) 72%);animation:ambientFloatB 10.5s ease-in-out infinite alternate}
+@keyframes ambientGradient{0%{background-position:0% 18%}35%{background-position:72% 35%}68%{background-position:100% 82%}100%{background-position:0% 18%}}
+@keyframes ambientFloatA{from{transform:translate3d(8px,-18px,0) scale(.94)}to{transform:translate3d(-54px,58px,0) scale(1.14)}}
+@keyframes ambientFloatB{from{transform:translate3d(-12px,30px,0) scale(.98)}to{transform:translate3d(62px,-52px,0) scale(1.12)}}
+@media(prefers-reduced-motion:reduce){body,body::before,body::after{animation:none}}
 button,input,select{font:inherit}button{cursor:pointer}.app-shell{position:relative;z-index:1;padding-bottom:calc(98px + var(--safe-bottom))}
-.screen{display:none;padding:calc(34px + var(--safe-top)) var(--page-x) 38px}.screen.active{display:block;animation:fade .18s ease}@keyframes fade{from{opacity:.45;transform:translateY(3px)}to{opacity:1;transform:none}}
+.screen{display:none;padding:calc(16px + var(--safe-top)) var(--page-x) 38px}.screen.active{display:block;animation:fade .18s ease}@keyframes fade{from{opacity:.45;transform:translateY(3px)}to{opacity:1;transform:none}}
 
-body.dark{--bg:#111722;--surface:rgba(28,36,51,.94);--surface-solid:#1c2433;--surface-2:#222c3c;--text:#f3f5f9;--muted:#9ba7ba;--line:rgba(57,70,91,.92);--shadow:0 14px 38px rgba(0,0,0,.25)}
+body.dark{--bg:#111722;--surface:rgba(28,36,51,.94);--surface-solid:#1c2433;--surface-2:#222c3c;--text:#f3f5f9;--muted:#9ba7ba;--line:rgba(57,70,91,.92);--shadow:0 14px 38px rgba(0,0,0,.25);background:linear-gradient(125deg,#111722 0%,#132033 28%,#211a34 54%,#142b29 78%,#2a2119 100%);background-size:320% 320%}
 body.dark::before{opacity:.35}body.dark::after{opacity:.23}
 body.dark .icon-button,body.dark .bottom-nav,body.dark .term-row,body.dark .next-card,body.dark .course-card,body.dark .settings-group,body.dark .exam-card,body.dark .exam-summary,body.dark .today-summary,body.dark .week-switcher,body.dark .course-modal,body.dark .editor-modal,body.dark .update-modal,body.dark .confirm-card,body.dark .bottom-sheet{background:var(--surface);border-color:var(--line)}
 body.dark .field input,body.dark .field select,body.dark .select-control{background:var(--surface-2);color:var(--text);border-color:var(--line)}
