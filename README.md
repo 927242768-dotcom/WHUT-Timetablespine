@@ -6,7 +6,7 @@
 
 ## 当前版本
 
-`v1.3.1`
+`v1.3.2`
 
 ## 已完成功能
 
@@ -33,7 +33,7 @@
 
 最终 APK：
 
-`D:\武理课表\武理课表-v1.3.1.apk`
+`D:\武理课表\武理课表-v1.3.2.apk`
 
 也可在 GitHub Release 中获取：
 
@@ -121,6 +121,6 @@ app/src/main/assets/
 - 周览支持连续节次课程块并横向查看周末
 - 课程详情采用彩色顶部与分组信息行
 
-v1.3.1 APK SHA-256：
+v1.3.2 APK SHA-256：
 
-`966fda19bea29f5d4ddbe9ad14d66b9148e54679949b4f21eff8b1aab26de8d6`
+`c14cbc7c535a50d90882e54c36e0060cf179bcda3ca0698beaad616ccb5c98e6`

@@ -29,6 +29,8 @@ import java.nio.charset.StandardCharsets;
 final class UpdateManager {
     static final String REPO = "927242768-dotcom/WHUT-Timetablespine";
     static final String API_URL = "https://api.github.com/repos/" + REPO + "/releases/latest";
+    private static final String RELEASES_API_URL = "https://api.github.com/repos/" + REPO + "/releases?per_page=1";
+    private static final String RELEASES_WEB_URL = "https://github.com/" + REPO + "/releases/latest";
     private static final String CHANNEL_ID = "app_updates";
     private static final String PREFS = "whut_timetable_prefs";
     private static final String KEY_LAST_CHECK = "last_update_check";
@@ -43,31 +45,19 @@ final class UpdateManager {
         try {
             return context.getPackageManager().getPackageInfo(context.getPackageName(), 0).versionName;
         } catch (Exception e) {
-            return "1.3.1";
+            return "1.3.2";
         }
     }
 
     static void check(Context context, String currentVersion, boolean force, Callback callback) {
         long now = System.currentTimeMillis();
         long last = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getLong(KEY_LAST_CHECK, 0L);
-        if (!force && now - last < 12L * 60L * 60L * 1000L) return;
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putLong(KEY_LAST_CHECK, now).apply();
+        if (!force && now - last < 30L * 60L * 1000L) return;
 
         new Thread(() -> {
             JSONObject result = new JSONObject();
             try {
-                HttpURLConnection connection = (HttpURLConnection) new URL(API_URL).openConnection();
-                connection.setConnectTimeout(8000);
-                connection.setReadTimeout(10000);
-                connection.setRequestProperty("Accept", "application/vnd.github+json");
-                connection.setRequestProperty("User-Agent", "WHUT-Timetable-Android");
-                int code = connection.getResponseCode();
-                if (code < 200 || code >= 300) throw new IllegalStateException("HTTP " + code);
-                String body;
-                try (InputStream input = connection.getInputStream()) {
-                    body = new String(input.readAllBytes(), StandardCharsets.UTF_8);
-                }
-                JSONObject release = new JSONObject(body);
+                JSONObject release = fetchLatestRelease(force);
                 String tag = release.optString("tag_name", "").replaceFirst("^[vV]", "");
                 String notes = release.optString("body", "");
                 String pageUrl = release.optString("html_url", "https://github.com/" + REPO + "/releases/latest");
@@ -85,21 +75,110 @@ final class UpdateManager {
                     }
                 }
                 boolean available = !tag.isBlank() && compareVersions(tag, currentVersion) > 0;
+                result.put("success", true);
                 result.put("available", available);
                 result.put("version", tag);
                 result.put("notes", notes);
                 result.put("apkUrl", apkUrl);
                 result.put("pageUrl", pageUrl);
+                context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putLong(KEY_LAST_CHECK, now).apply();
                 if (available && !force) showUpdateNotification(context, tag);
                 if (callback != null) callback.onResult(true, result);
             } catch (Exception e) {
                 try {
+                    result.put("success", false);
                     result.put("available", false);
-                    result.put("message", "暂时无法检查更新");
+                    result.put("message", "检查更新失败，请检查网络后重试");
+                    result.put("detail", e.getMessage() == null ? "unknown" : e.getMessage());
                 } catch (Exception ignored) {}
                 if (callback != null) callback.onResult(false, result);
             }
         }).start();
+    }
+
+    private static JSONObject fetchLatestRelease(boolean force) throws Exception {
+        String cacheBust = force ? ((API_URL.contains("?") ? "&" : "?") + "_=" + System.currentTimeMillis()) : "";
+        Exception firstError = null;
+        try {
+            return readReleaseObject(API_URL + cacheBust);
+        } catch (Exception e) {
+            firstError = e;
+        }
+
+        try {
+            String separator = RELEASES_API_URL.contains("?") ? "&" : "?";
+            String url = RELEASES_API_URL + (force ? separator + "_=" + System.currentTimeMillis() : "");
+            JSONArray releases = readJsonArray(url);
+            if (releases.length() > 0 && releases.optJSONObject(0) != null) return releases.getJSONObject(0);
+        } catch (Exception ignored) {
+        }
+
+        try {
+            return releaseFromWebRedirect(force);
+        } catch (Exception webError) {
+            String first = firstError == null ? "unknown" : firstError.getMessage();
+            throw new IllegalStateException("GitHub update endpoints unavailable: " + first, webError);
+        }
+    }
+
+    private static JSONObject readReleaseObject(String url) throws Exception {
+        return new JSONObject(readText(url, true));
+    }
+
+    private static JSONArray readJsonArray(String url) throws Exception {
+        return new JSONArray(readText(url, true));
+    }
+
+    private static String readText(String url, boolean githubApi) throws Exception {
+        HttpURLConnection connection = (HttpURLConnection) new URL(url).openConnection();
+        connection.setConnectTimeout(8000);
+        connection.setReadTimeout(10000);
+        connection.setUseCaches(false);
+        connection.setRequestProperty("Cache-Control", "no-cache, no-store, max-age=0");
+        connection.setRequestProperty("Pragma", "no-cache");
+        connection.setRequestProperty("User-Agent", "WHUT-Timetable-Android");
+        if (githubApi) connection.setRequestProperty("Accept", "application/vnd.github+json");
+        int code = connection.getResponseCode();
+        if (code < 200 || code >= 300) throw new IllegalStateException("HTTP " + code);
+        try (InputStream input = connection.getInputStream()) {
+            return new String(input.readAllBytes(), StandardCharsets.UTF_8);
+        } finally {
+            connection.disconnect();
+        }
+    }
+
+    private static JSONObject releaseFromWebRedirect(boolean force) throws Exception {
+        String url = RELEASES_WEB_URL + (force ? "?_=" + System.currentTimeMillis() : "");
+        HttpURLConnection connection = (HttpURLConnection) new URL(url).openConnection();
+        connection.setConnectTimeout(8000);
+        connection.setReadTimeout(10000);
+        connection.setInstanceFollowRedirects(true);
+        connection.setUseCaches(false);
+        connection.setRequestProperty("Cache-Control", "no-cache, no-store, max-age=0");
+        connection.setRequestProperty("Pragma", "no-cache");
+        connection.setRequestProperty("User-Agent", "WHUT-Timetable-Android");
+        int code = connection.getResponseCode();
+        if (code < 200 || code >= 400) throw new IllegalStateException("HTTP " + code);
+        String finalUrl = connection.getURL().toString();
+        connection.disconnect();
+        int marker = finalUrl.indexOf("/releases/tag/");
+        if (marker < 0) throw new IllegalStateException("无法解析 GitHub latest tag");
+        String tagRaw = finalUrl.substring(marker + "/releases/tag/".length());
+        int query = tagRaw.indexOf('?');
+        if (query >= 0) tagRaw = tagRaw.substring(0, query);
+        if (tagRaw.isBlank()) throw new IllegalStateException("GitHub latest tag 为空");
+
+        JSONObject release = new JSONObject();
+        release.put("tag_name", tagRaw);
+        release.put("body", "");
+        release.put("html_url", finalUrl);
+        JSONObject asset = new JSONObject();
+        asset.put("name", "WHUT-Timetable-" + tagRaw + ".apk");
+        asset.put("browser_download_url", "https://github.com/" + REPO + "/releases/download/" + tagRaw + "/WHUT-Timetable-" + tagRaw + ".apk");
+        JSONArray assets = new JSONArray();
+        assets.put(asset);
+        release.put("assets", assets);
+        return release;
     }
 
     static void downloadAndInstall(Activity activity, String apkUrl, String version) {
