@@ -11,6 +11,8 @@ local.properties
 # DevSpace 桌面检查截图
 .devspace-computer/
 
-# 系统文件
+# 发布产物与系统文件
+*.apk
+nul
 .DS_Store
 Thumbs.db
