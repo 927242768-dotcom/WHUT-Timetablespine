@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover" />
+  <meta name="theme-color" content="#f5f7fb" />
+  <title>武理课表</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <main class="app-shell">
+    <section id="screen-schedule" class="screen active" aria-label="课表">
+      <header class="topbar">
+        <div class="title-block"><h1>我的课表</h1><p>武汉理工大学</p></div>
+        <div class="top-actions">
+          <button id="add-course-top" class="icon-button" aria-label="添加课程"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
+          <button id="sync-top" class="icon-button" aria-label="同步课表"><svg viewBox="0 0 24 24"><path d="M20 7v5h-5M4 17v-5h5M6.1 8.4A7 7 0 0 1 18.5 7M17.9 15.6A7 7 0 0 1 5.5 17"/></svg></button>
+        </div>
+      </header>
+
+      <button id="week-picker" class="term-row">
+        <span><strong id="term-name">尚未同步</strong><small id="week-name">本周课表</small></span>
+        <span class="chevron">›</span>
+      </button>
+
+      <section class="next-card">
+        <div class="next-label">下一节</div>
+        <div id="next-course" class="next-course">还没有课表</div>
+        <div id="next-course-meta" class="next-meta">点击右上角同步</div>
+      </section>
+
+      <div id="date-strip" class="date-strip"></div>
+
+      <section class="section-head">
+        <div><h2 id="selected-date-title">今天</h2><p id="selected-date-subtitle">课程安排</p></div>
+      </section>
+      <div id="course-list" class="course-list"></div>
+    </section>
+
+    <section id="screen-week" class="screen" aria-label="周览">
+      <header class="topbar compact-topbar">
+        <div class="title-block"><h1>周览</h1><p id="week-term-name">当前学期</p></div>
+      </header>
+      <div class="week-switcher">
+        <button id="week-prev" class="round-button" aria-label="上一周">‹</button>
+        <button id="week-picker-week" class="week-center"><strong id="week-page-name">第1周</strong><small>点击切换教学周</small></button>
+        <button id="week-next" class="round-button" aria-label="下一周">›</button>
+      </div>
+      <div class="week-scroll-hint">横向滑动查看周六、周日</div>
+      <div class="week-board-wrap"><div id="week-board" class="week-board"></div></div>
+    </section>
+
+    <section id="screen-today" class="screen" aria-label="今天">
+      <header class="today-header">
+        <div><h1>今天</h1><p id="today-date-line">--</p></div>
+        <div id="today-badge" class="date-badge">--</div>
+      </header>
+      <div id="today-summary" class="today-summary"></div>
+      <div id="today-list" class="course-list"></div>
+    </section>
+
+    <section id="screen-exams" class="screen" aria-label="考试">
+      <header class="topbar">
+        <div class="title-block"><h1>考试</h1><p>本学期考试安排</p></div>
+        <button id="exam-sync" class="icon-button" aria-label="同步考试"><svg viewBox="0 0 24 24"><path d="M20 7v5h-5M4 17v-5h5M6.1 8.4A7 7 0 0 1 18.5 7M17.9 15.6A7 7 0 0 1 5.5 17"/></svg></button>
+      </header>
+      <div id="exam-summary" class="exam-summary"></div>
+      <div id="exam-list" class="exam-list"></div>
+    </section>
+
+    <section id="screen-settings" class="screen" aria-label="设置">
+      <header class="topbar compact-topbar"><div class="title-block"><h1>设置</h1><p>课表与应用偏好</p></div></header>
+
+      <div class="settings-label">课表</div>
+      <section class="settings-group">
+        <button id="sync-settings" class="settings-row row-button">
+          <div class="setting-copy"><strong>同步课表</strong><span id="setting-sync-time">尚未同步</span></div><span class="row-arrow">›</span>
+        </button>
+        <div class="settings-row">
+          <div class="setting-copy"><strong>上课提醒</strong><span>课程开始前通知</span></div>
+          <label class="switch"><input id="reminder-toggle" type="checkbox" checked><span></span></label>
+        </div>
+        <div class="settings-row">
+          <div class="setting-copy"><strong>提前提醒</strong><span>选择提醒时间</span></div>
+          <select id="reminder-minutes" class="select-control"><option value="5">5 分钟</option><option value="10">10 分钟</option><option value="15" selected>15 分钟</option><option value="30">30 分钟</option><option value="60">1 小时</option></select>
+        </div>
+        <button id="add-course-setting" class="settings-row row-button"><div class="setting-copy"><strong>添加课程</strong><span>添加临时或自定义课程</span></div><span class="row-arrow">›</span></button>
+      </section>
+
+      <div class="settings-label">外观</div>
+      <section class="settings-group">
+        <div class="settings-row theme-row">
+          <div class="setting-copy"><strong>主题颜色</strong><span>课程界面强调色</span></div>
+          <div id="theme-picker" class="theme-picker"><button class="theme-dot active" data-theme="blue" aria-label="蓝色"></button><button class="theme-dot" data-theme="violet" aria-label="紫色"></button><button class="theme-dot" data-theme="green" aria-label="绿色"></button><button class="theme-dot" data-theme="orange" aria-label="橙色"></button></div>
+        </div>
+        <div class="settings-row"><div class="setting-copy"><strong>深色模式</strong><span>切换深色外观</span></div><label class="switch"><input id="dark-toggle" type="checkbox"><span></span></label></div>
+      </section>
+
+      <div class="settings-label">桌面</div>
+      <section class="settings-group"><button id="widget-help" class="settings-row row-button"><div class="setting-copy"><strong>添加桌面小组件</strong><span>在桌面查看今天课程</span></div><span class="row-arrow">›</span></button></section>
+
+      <div class="settings-label">软件</div>
+      <section class="settings-group">
+        <button id="check-update" class="settings-row row-button"><div class="setting-copy"><strong>检查更新 <em id="update-dot" class="new-badge" hidden>NEW</em></strong><span id="version-text">当前版本</span></div><span class="row-arrow">›</span></button>
+        <button id="clear-data" class="settings-row row-button danger-row"><div class="setting-copy"><strong>清除本地课表</strong><span>移除课程和本地偏好</span></div><span class="row-arrow">›</span></button>
+      </section>
+      <div class="app-footnote">武理课表 · 非官方应用</div>
+    </section>
+  </main>
+
+  <nav class="bottom-nav" aria-label="主导航">
+    <button class="nav-item active" data-screen="schedule"><svg viewBox="0 0 24 24"><path d="M4 5h16v15H4zM8 3v4M16 3v4M4 9h16"/></svg><span>课表</span></button>
+    <button class="nav-item" data-screen="week"><svg viewBox="0 0 24 24"><path d="M4 6h16v14H4zM4 10h16M8 6v14M12 6v14M16 6v14"/></svg><span>周览</span></button>
+    <button class="nav-item" data-screen="today"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/></svg><span>今天</span></button>
+    <button class="nav-item" data-screen="exams"><svg viewBox="0 0 24 24"><path d="M6 3h12v18H6zM9 7h6M9 11h6M9 15h4"/></svg><span>考试</span></button>
+    <button class="nav-item" data-screen="settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1l2-1.5-2-3.4-2.5 1A7 7 0 0 0 14.6 6L14 3h-4l-.6 3a7 7 0 0 0-1.8 1.1l-2.5-1-2 3.4L5.1 11a7 7 0 0 0 0 2L3 14.5l2 3.4 2.6-1A7 7 0 0 0 9.4 18l.6 3h4l.6-3a7 7 0 0 0 1.8-1.1l2.5 1 2-3.4-2-1.5a7 7 0 0 0 .1-1z"/></svg><span>设置</span></button>
+  </nav>
+
+  <div id="week-sheet-backdrop" class="sheet-backdrop" hidden><section class="bottom-sheet" role="dialog" aria-modal="true"><div class="sheet-handle"></div><div class="sheet-header"><div><h2>切换教学周</h2><p>选择要查看的周次</p></div><button id="close-week-sheet" class="close-button">×</button></div><div id="week-options" class="week-options"></div></section></div>
+
+  <div id="course-modal-backdrop" class="modal-backdrop" hidden><section class="course-modal" role="dialog" aria-modal="true"><button id="close-course-modal" class="close-button modal-close">×</button><div id="course-modal-content"></div><div class="modal-actions"><button id="edit-course" class="secondary-button">编辑课程</button></div></section></div>
+
+  <div id="editor-backdrop" class="modal-backdrop" hidden><section class="editor-modal" role="dialog" aria-modal="true"><div class="editor-head"><div><p>课程</p><h2 id="editor-title">添加课程</h2></div><button id="close-editor" class="close-button">×</button></div><div class="editor-form">
+    <label class="field full"><span>课程名称</span><input id="edit-name" type="text" placeholder="例如：数字电路" maxlength="60"></label>
+    <label class="field"><span>星期</span><select id="edit-day"><option value="1">周一</option><option value="2">周二</option><option value="3">周三</option><option value="4">周四</option><option value="5">周五</option><option value="6">周六</option><option value="7">周日</option></select></label>
+    <label class="field"><span>地点</span><input id="edit-room" type="text" placeholder="教学楼 / 教室"></label>
+    <label class="field"><span>开始节次</span><input id="edit-begin-section" type="number" min="1" max="20" value="1"></label><label class="field"><span>结束节次</span><input id="edit-end-section" type="number" min="1" max="20" value="2"></label>
+    <label class="field"><span>开始时间</span><input id="edit-begin-time" type="time"></label><label class="field"><span>结束时间</span><input id="edit-end-time" type="time"></label>
+    <label class="field"><span>教师</span><input id="edit-teacher" type="text" placeholder="可不填"></label><label class="field"><span>课程编号</span><input id="edit-code" type="text" placeholder="可不填"></label>
+  </div><div class="editor-actions"><button id="delete-course" class="danger-text-button" hidden>删除</button><span></span><button id="cancel-editor" class="secondary-button">取消</button><button id="save-course" class="primary-button">保存</button></div></section></div>
+
+  <div id="update-backdrop" class="modal-backdrop" hidden><section class="update-modal" role="dialog" aria-modal="true"><button id="close-update" class="close-button modal-close">×</button><div class="update-kicker">版本更新</div><h2 id="update-title">正在检查…</h2><p id="update-notes">请稍候</p><button id="install-update" class="primary-button update-button" hidden>立即更新</button></section></div>
+  <div id="widget-backdrop" class="modal-backdrop" hidden><section class="confirm-card" role="dialog" aria-modal="true"><h3>添加桌面小组件</h3><p>长按手机桌面空白处，选择“小组件”，找到“武理课表”，拖到桌面即可。</p><div class="confirm-actions one"><button id="close-widget-help" class="primary-button">知道了</button></div></section></div>
+  <div id="confirm-backdrop" class="modal-backdrop" hidden><section class="confirm-card" role="dialog" aria-modal="true"><h3>清除本地课表？</h3><p>课程数据、手动编辑和本地偏好会一起清除。</p><div class="confirm-actions"><button id="cancel-clear" class="secondary-button">取消</button><button id="confirm-clear" class="danger-button">清除</button></div></section></div>
+  <div id="toast" class="toast" aria-live="polite"></div>
+  <script src="app.js"></script>
+</body>
+</html>

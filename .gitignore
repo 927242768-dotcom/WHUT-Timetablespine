@@ -1,0 +1,16 @@
+# Android / Gradle
+.gradle/
+**/build/
+local.properties
+*.iml
+.idea/
+
+# 本项目为临时构建下载的 Android SDK / Gradle，不提交仓库
+.toolchain/
+
+# DevSpace 桌面检查截图
+.devspace-computer/
+
+# 系统文件
+.DS_Store
+Thumbs.db

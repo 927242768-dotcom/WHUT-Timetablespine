@@ -1,0 +1,60 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.whut.timetable'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId 'com.whut.timetable'
+        minSdk 24
+        targetSdk 35
+        versionCode 3
+        versionName '1.2.0'
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.debug
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+
+    applicationVariants.all { variant ->
+        variant.outputs.all {
+            if (variant.buildType.name == 'release') {
+                outputFileName = "武理课表-v${variant.versionName}.apk"
+            }
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+tasks.register('copyReleaseApk') {
+    dependsOn 'assembleRelease'
+    doLast {
+        def sourceApk = file("$buildDir/outputs/apk/release/武理课表-v${android.defaultConfig.versionName}.apk")
+        def targetApk = rootProject.file("武理课表-v${android.defaultConfig.versionName}.apk")
+        def releaseAssetApk = rootProject.file("WHUT-Timetable-v${android.defaultConfig.versionName}.apk")
+        java.nio.file.Files.copy(
+                sourceApk.toPath(),
+                targetApk.toPath(),
+                java.nio.file.StandardCopyOption.REPLACE_EXISTING
+        )
+        java.nio.file.Files.copy(
+                sourceApk.toPath(),
+                releaseAssetApk.toPath(),
+                java.nio.file.StandardCopyOption.REPLACE_EXISTING
+        )
+    }
+}
+
+dependencies {
+    implementation 'androidx.core:core:1.13.1'
+}
