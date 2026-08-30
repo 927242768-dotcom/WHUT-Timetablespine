@@ -125,7 +125,10 @@ body::after{opacity:.82;filter:blur(68px);background:radial-gradient(circle at 6
   content:"";position:absolute;z-index:0;pointer-events:none;left:10px;right:10px;top:1px;height:1px;border-radius:999px;background:linear-gradient(90deg,transparent,var(--glass-highlight),transparent);opacity:.78
 }
 .term-row>*,.next-card>*,.today-summary>*,.exam-summary>*,.exam-rhythm-panel>*,.exam-next-panel>*,.settings-group>*,.week-switcher>*,.bottom-nav>*,.course-modal>*,.editor-modal>*,.update-modal>*,.confirm-card>*,.bottom-sheet>*{position:relative;z-index:1}
-.term-row,.next-card,.today-summary,.exam-summary,.exam-rhythm-panel,.exam-next-panel,.settings-group,.week-switcher,.bottom-nav,.course-modal,.editor-modal,.update-modal,.confirm-card,.bottom-sheet{position:relative}
+.term-row,.next-card,.today-summary,.exam-summary,.exam-rhythm-panel,.exam-next-panel,.settings-group,.week-switcher,.course-modal,.editor-modal,.update-modal,.confirm-card,.bottom-sheet{position:relative}
+/* Bottom Navigation 必须始终脱离文档流固定在可见视口底部，不能被上面的通用玻璃容器规则覆盖 */
+.bottom-nav{position:fixed;z-index:50}
+body.week-screen-active .bottom-nav{position:fixed;z-index:50;bottom:calc(10px + var(--safe-bottom))}
 
 /* 统一玻璃按钮系统 */
 .glass-button,.secondary-button,.week-option,.select-control{border:1px solid var(--glass-border);background:linear-gradient(145deg,var(--glass-bg),var(--glass-bg-soft));color:var(--text);box-shadow:var(--glass-shadow-soft),var(--glass-inner-highlight)}
