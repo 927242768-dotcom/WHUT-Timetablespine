@@ -53,7 +53,7 @@ public class ImportActivity extends Activity {
     private static final int STAGE_LIVE = 1;
     private static final String LIVE_DESKTOP_UA =
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
-            "(KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36 WhutTimetable/1.5";
+            "(KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36 WhutTimetable/1.5.1";
 
     private WebView webView;
     private TextView statusText;
@@ -174,9 +174,9 @@ public class ImportActivity extends Activity {
 
                 const weekSchedules = [];
                 if (weeks.length) {
-                  // 每次最多并行四周，既提高速度，也避免对学校服务器产生过大瞬时请求。
-                  for (let i = 0; i < weeks.length; i += 4) {
-                    const batch = await Promise.all(weeks.slice(i, i + 4).map(loadWeek));
+                  // 每次最多并行八周：比旧版四周一批明显更快，同时避免一次性向学校服务器发出全部请求。
+                  for (let i = 0; i < weeks.length; i += 8) {
+                    const batch = await Promise.all(weeks.slice(i, i + 8).map(loadWeek));
                     weekSchedules.push(...batch);
                   }
                 } else {
@@ -333,8 +333,9 @@ public class ImportActivity extends Activity {
                     };
 
                     const collected = [];
-                    for (let i = 0; i < weeks.length; i += 4) {
-                      const batch = await Promise.all(weeks.slice(i, i + 4).map(loadWeek));
+                    // 直播课堂同样按八周一批并行同步，减少整学期等待时间。
+                    for (let i = 0; i < weeks.length; i += 8) {
+                      const batch = await Promise.all(weeks.slice(i, i + 8).map(loadWeek));
                       batch.forEach(list => collected.push(...list));
                     }
                     const unique = [];
@@ -443,7 +444,7 @@ public class ImportActivity extends Activity {
         settings.setSupportZoom(true);
         settings.setBuiltInZoomControls(true);
         settings.setDisplayZoomControls(false);
-        settings.setUserAgentString(settings.getUserAgentString() + " WhutTimetable/1.2");
+        settings.setUserAgentString(settings.getUserAgentString() + " WhutTimetable/1.5.1");
 
         CookieManager cookieManager = CookieManager.getInstance();
         cookieManager.setAcceptCookie(true);
@@ -453,7 +454,13 @@ public class ImportActivity extends Activity {
         webView.setWebViewClient(new WebViewClient() {
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
-                return false;
+                return handleSchoolNavigation(view, request == null ? null : request.getUrl());
+            }
+
+            @SuppressWarnings("deprecation")
+            @Override
+            public boolean shouldOverrideUrlLoading(WebView view, String url) {
+                return handleSchoolNavigation(view, url == null ? null : Uri.parse(url));
             }
 
             @Override
@@ -478,6 +485,29 @@ public class ImportActivity extends Activity {
                 }
             }
         });
+    }
+
+    /**
+     * 武理部分统一认证链路仍会先返回 http://zhlgd.whut.edu.cn/... 再 301 到 HTTPS。
+     * Android 9+ WebView 默认禁止明文 HTTP，因此在真正发出 HTTP 请求前，仅对武汉理工大学域名
+     * 原地升级为 HTTPS。这样既兼容学校旧跳转，也无需为整个 App 开启 cleartextTraffic。
+     */
+    private boolean handleSchoolNavigation(WebView view, Uri uri) {
+        if (view == null || uri == null) return false;
+        String scheme = uri.getScheme();
+        String host = uri.getHost();
+        if ("http".equalsIgnoreCase(scheme)
+                && host != null
+                && (host.equalsIgnoreCase("whut.edu.cn")
+                || host.toLowerCase(java.util.Locale.ROOT).endsWith(".whut.edu.cn"))) {
+            Uri secureUri = uri.buildUpon().scheme("https").build();
+            if (statusText != null && syncStage == STAGE_LIVE) {
+                statusText.setText("正在进入武理统一认证");
+            }
+            view.loadUrl(secureUri.toString());
+            return true;
+        }
+        return false;
     }
 
     private void startSync() {
@@ -612,7 +642,7 @@ public class ImportActivity extends Activity {
         handler.removeCallbacks(autoSyncRunnable);
         if (liveRetryCount <= 4 && isTrustedLivePage()) {
             statusText.setText("直播课堂同步未完成，正在重试");
-            handler.postDelayed(autoSyncRunnable, 1800);
+            handler.postDelayed(autoSyncRunnable, 900);
             return;
         }
         finishImport(false, message);
@@ -656,7 +686,7 @@ public class ImportActivity extends Activity {
         if (syncStage == STAGE_TIMETABLE && isTrustedSchoolPage()) {
             handler.postDelayed(autoSyncRunnable, 1600);
         } else if (syncStage == STAGE_LIVE && isTrustedLivePage()) {
-            handler.postDelayed(autoSyncRunnable, 1800);
+            handler.postDelayed(autoSyncRunnable, 900);
         }
     }
 

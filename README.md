@@ -6,7 +6,7 @@
 
 ## 当前版本
 
-`v1.5.0`
+`v1.5.1`
 
 ## 已完成功能
 
@@ -16,6 +16,8 @@
 - 自动同步全部教学周
 - 同一次同步流程中自动连接智播学堂并导入“我的课程”直播课堂
 - App 内直播课堂页面：正在直播 / 接下来 / 回放与近期记录
+- 兼容武理统一认证旧 HTTP 跳转：自动安全升级为 HTTPS，避免 Android `ERR_CLEARTEXT_NOT_PERMITTED`
+- 教务课表与直播课堂整学期同步并发优化，减少等待时间
 - 点击直播课程可在 App 内复用学校登录态打开智播学堂官方课堂
 - 本地离线保存
 - 独立课表、周览、今天页面
@@ -36,7 +38,7 @@
 
 最终 APK：
 
-`D:\武理课表\武理课表-v1.5.0.apk`
+`D:\武理课表\武理课表-v1.5.1.apk`
 
 也可在 GitHub Release 中获取：
 
@@ -129,11 +131,11 @@ app/src/main/assets/
 - Android `assembleDebug`
 - Android `assembleRelease`
 - APK Signature Scheme v2 签名校验
-- APK 内实际包名 `com.whut.timetable`、versionCode `16`、versionName `1.5.0`
+- APK 内实际包名 `com.whut.timetable`、versionCode `17`、versionName `1.5.1`
 - 周览支持连续节次课程块并横向查看周末
 - 课程详情采用彩色顶部与分组信息行
 - 直播课堂数据只保存课程/场次信息，不保存智播学堂登录 token
 
-v1.5.0 APK SHA-256：
+v1.5.1 APK SHA-256：
 
-`FC0AC2349A7902CADD08AB1D138D90483D066FD5B2F808D4EEFDE26A94824619`
+`E5FBAA873171174654BE3C6E7D8657DB8C53D3BB6DC5EC2A6BAEC946E37B68C9`
