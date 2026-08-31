@@ -44,11 +44,25 @@ public class ImportActivity extends Activity {
     private static final String SCHOOL_HOST = "jwxt.whut.edu.cn";
     private static final String SCHOOL_HOME =
             "https://jwxt.whut.edu.cn/jwapp/sys/homeapp/home/index.html?contextPath=/jwapp#/";
+    private static final String LIVE_HOST = "classroom.lgzk.whut.edu.cn";
+    private static final String LIVE_HOME =
+            "https://classroom.lgzk.whut.edu.cn/coursepage?tenant_code=223";
+    private static final String LIVE_CAS =
+            "https://yjapi.lgzk.whut.edu.cn/casapi/index.php?r=auth/login&auType=&tenant_code=223&forward=";
+    private static final int STAGE_TIMETABLE = 0;
+    private static final int STAGE_LIVE = 1;
+    private static final String LIVE_DESKTOP_UA =
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+            "(KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36 WhutTimetable/1.5";
 
     private WebView webView;
     private TextView statusText;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private boolean syncInProgress = false;
+    private int syncStage = STAGE_TIMETABLE;
+    private int liveRetryCount = 0;
+    private boolean liveLoginLaunched = false;
+    private JSONObject pendingImport;
     private final Runnable autoSyncRunnable = this::startSync;
 
     private static final String SYNC_SCRIPT = """
@@ -191,7 +205,7 @@ public class ImportActivity extends Activity {
 
                 bridge.onData(JSON.stringify({
                   ok: true,
-                  schemaVersion: 2,
+                  schemaVersion: 3,
                   syncedAt: new Date().toISOString(),
                   userType,
                   term,
@@ -205,6 +219,148 @@ public class ImportActivity extends Activity {
               }
             })();
             """;
+
+    /**
+     * 智播学堂“我的课程”同步脚本。
+     * 登录凭据仅在学校页面内部参与请求，桥接回 App 的结果中不会包含 token/cookie。
+     */
+    private String buildLiveSyncScript() {
+        String weeksJson = "[]";
+        if (pendingImport != null && pendingImport.optJSONArray("weeks") != null) {
+            weeksJson = pendingImport.optJSONArray("weeks").toString();
+        }
+        return """
+                (async () => {
+                  const bridge = window.WhutImportBridge;
+                  const sourceWeeks = __WEEKS__;
+                  const send = (payload) => {
+                    try { bridge.onLiveData(JSON.stringify(payload)); } catch (_) {}
+                  };
+                  const authError = (message) => {
+                    const error = new Error(message || '智播学堂登录尚未完成');
+                    error.authRequired = true;
+                    throw error;
+                  };
+                  const getCookie = (name) => {
+                    const prefix = name + '=';
+                    const entry = document.cookie.split(';').map(v => v.trim()).find(v => v.startsWith(prefix));
+                    return entry ? entry.slice(prefix.length) : '';
+                  };
+                  const getToken = () => {
+                    let raw = getCookie('_token');
+                    try { raw = decodeURIComponent(raw || ''); } catch (_) {}
+                    const serialized = raw.match(/"_token";i:\\d+;s:\\d+:"([^"]+)"/);
+                    if (serialized && serialized[1]) raw = serialized[1];
+                    if (!raw) raw = new URLSearchParams(location.search).get('token') || '';
+                    return raw;
+                  };
+                  const formatDate = (date) => {
+                    const pad = n => String(n).padStart(2, '0');
+                    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+                  };
+                  const normalizeWeeks = () => {
+                    const usable = Array.isArray(sourceWeeks) ? sourceWeeks.filter(w => w && w.startDate && w.endDate) : [];
+                    if (usable.length) return usable.map(w => ({startDate:String(w.startDate), endDate:String(w.endDate)}));
+                    const now = new Date(), day = now.getDay() || 7;
+                    const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+                    monday.setDate(monday.getDate() - day + 1);
+                    const sunday = new Date(monday); sunday.setDate(sunday.getDate() + 6);
+                    return [{startDate:formatDate(monday), endDate:formatDate(sunday)}];
+                  };
+                  const readJson = async (response) => {
+                    if (response.status === 401 || response.status === 403) authError('智播学堂登录已失效');
+                    if (!response.ok) throw new Error('智播学堂请求失败：' + response.status);
+                    const type = (response.headers.get('content-type') || '').toLowerCase();
+                    if (type.includes('text/html')) authError('智播学堂正在等待统一认证');
+                    return response.json();
+                  };
+
+                  try {
+                    const userResponse = await fetch('/userapi/v1/infosimple', {
+                      credentials:'include', cache:'no-store', headers:{Accept:'application/json'}
+                    });
+                    const userJson = await readJson(userResponse);
+                    const user = userJson && (userJson.params || (userJson.data && userJson.data.params) || userJson.data);
+                    if (!user || !user.id) authError('没有读取到智播学堂登录用户');
+
+                    const tenantCode = String(user.tenant_id || user.tenant_code || 223);
+                    const token = getToken();
+                    if (!token) authError('没有读取到智播学堂登录凭据');
+                    const weeks = normalizeWeeks();
+
+                    const loadWeek = async (week) => {
+                      const query = new URLSearchParams({
+                        user_id:String(user.id),
+                        tenant_id:tenantCode,
+                        start_at:week.startDate,
+                        end_at:week.endDate,
+                        token
+                      });
+                      const response = await fetch('/courseapi/v2/schedule/get-week-schedules?' + query.toString(), {
+                        credentials:'include', cache:'no-store', headers:{Accept:'application/json'}
+                      });
+                      const json = await readJson(response);
+                      const days = (json && json.result && Array.isArray(json.result.list)) ? json.result.list :
+                        (json && json.data && json.data.result && Array.isArray(json.data.result.list) ? json.data.result.list : []);
+                      const out = [];
+                      days.forEach(day => {
+                        const courses = day && Array.isArray(day.course) ? day.course : [];
+                        courses.forEach(item => {
+                          if (!item) return;
+                          out.push({
+                            courseId:String(item.course_id == null ? '' : item.course_id),
+                            subId:String(item.id == null ? (item.sub_id == null ? '' : item.sub_id) : item.id),
+                            title:String(item.course_title || item.title || '直播课堂'),
+                            room:String(item.room_name || ''),
+                            teacher:String(item.lecturer_name || item.teacher_name || ''),
+                            startAt:Number(item.start_at || 0),
+                            endAt:Number(item.end_at || 0),
+                            status:Number(item.status || 0),
+                            playbackStatus:item.playback_status == null ? null : item.playback_status,
+                            multiType:String(item.multi_type || ''),
+                            oliveType:String(item.olive_type || item.sub_type || ''),
+                            publicType:item.is_public == null ? null : item.is_public,
+                            reviewType:item.sub_review_type == null ? null : item.sub_review_type,
+                            early:item.early == null ? null : item.early,
+                            tenantCode,
+                            sourceDay:String((day && (day.day || day.date)) || ''),
+                            weekStart:week.startDate,
+                            weekEnd:week.endDate
+                          });
+                        });
+                      });
+                      return out;
+                    };
+
+                    const collected = [];
+                    for (let i = 0; i < weeks.length; i += 4) {
+                      const batch = await Promise.all(weeks.slice(i, i + 4).map(loadWeek));
+                      batch.forEach(list => collected.push(...list));
+                    }
+                    const unique = [];
+                    const seen = new Set();
+                    collected.forEach(item => {
+                      const key = [item.courseId,item.subId,item.startAt,item.endAt].join('|');
+                      if (!seen.has(key)) { seen.add(key); unique.push(item); }
+                    });
+                    unique.sort((a,b) => (a.startAt || 0) - (b.startAt || 0));
+                    send({
+                      ok:true,
+                      syncedAt:new Date().toISOString(),
+                      tenantCode,
+                      user:{id:String(user.id), name:String(user.realname || user.name || '')},
+                      classes:unique
+                    });
+                  } catch (error) {
+                    send({
+                      ok:false,
+                      authRequired:!!(error && error.authRequired),
+                      message:String(error && error.message ? error.message : error || '直播课堂同步失败')
+                    });
+                  }
+                })();
+                """.replace("__WEEKS__", weeksJson);
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -267,7 +423,7 @@ public class ImportActivity extends Activity {
         titleBox.addView(title);
 
         statusText = new TextView(this);
-        statusText.setText("登录成功后将自动同步");
+        statusText.setText("登录成功后将自动同步课表与直播课堂");
         statusText.setTextSize(12);
         statusText.setTextColor(Color.rgb(116, 125, 145));
         titleBox.addView(statusText);
@@ -305,11 +461,20 @@ public class ImportActivity extends Activity {
                 super.onPageFinished(view, url);
                 syncInProgress = false;
                 handler.removeCallbacks(autoSyncRunnable);
-                if (isTrustedSchoolPage()) {
-                    statusText.setText("正在确认登录状态");
-                    handler.postDelayed(autoSyncRunnable, 650);
+                if (syncStage == STAGE_TIMETABLE) {
+                    if (isTrustedSchoolPage()) {
+                        statusText.setText("正在确认教务登录状态");
+                        handler.postDelayed(autoSyncRunnable, 650);
+                    } else {
+                        statusText.setText("正在等待统一认证");
+                    }
                 } else {
-                    statusText.setText("正在等待登录");
+                    if (isTrustedLivePage()) {
+                        statusText.setText("正在确认智播学堂登录状态");
+                        handler.postDelayed(autoSyncRunnable, 750);
+                    } else {
+                        statusText.setText("正在完成智播学堂统一认证");
+                    }
                 }
             }
         });
@@ -317,13 +482,28 @@ public class ImportActivity extends Activity {
 
     private void startSync() {
         if (webView == null || syncInProgress) return;
+        if (syncStage == STAGE_LIVE) {
+            startLiveSync();
+            return;
+        }
         if (!isTrustedSchoolPage()) {
-            statusText.setText("正在等待登录");
+            statusText.setText("正在等待统一认证");
             return;
         }
         syncInProgress = true;
-        statusText.setText("正在同步课表");
+        statusText.setText("正在同步教务课表");
         webView.evaluateJavascript(SYNC_SCRIPT, null);
+    }
+
+    private void startLiveSync() {
+        if (webView == null || syncInProgress) return;
+        if (!isTrustedLivePage()) {
+            statusText.setText("正在完成智播学堂统一认证");
+            return;
+        }
+        syncInProgress = true;
+        statusText.setText("正在同步直播课堂");
+        webView.evaluateJavascript(buildLiveSyncScript(), null);
     }
 
     private boolean isTrustedSchoolPage() {
@@ -333,10 +513,38 @@ public class ImportActivity extends Activity {
                 && SCHOOL_HOST.equalsIgnoreCase(uri.getHost());
     }
 
+    private boolean isTrustedLivePage() {
+        if (webView == null || webView.getUrl() == null) return false;
+        Uri uri = Uri.parse(webView.getUrl());
+        return "https".equalsIgnoreCase(uri.getScheme())
+                && LIVE_HOST.equalsIgnoreCase(uri.getHost());
+    }
+
+    private String liveLoginUrl() {
+        return LIVE_CAS + Uri.encode(LIVE_HOME);
+    }
+
+    private void beginLiveSync() {
+        syncStage = STAGE_LIVE;
+        syncInProgress = false;
+        liveRetryCount = 0;
+        liveLoginLaunched = false;
+        statusText.setText("课表已同步，正在连接智播学堂");
+        // 智播学堂会把移动 UA 重定向到 H5 站点；同步阶段使用桌面 UA，保持官方课程页和 API 同源。
+        webView.getSettings().setUserAgentString(LIVE_DESKTOP_UA);
+        CookieManager.getInstance().flush();
+        webView.loadUrl(LIVE_HOME);
+    }
+
     private final class ImportBridge {
         @JavascriptInterface
         public void onData(String json) {
             runOnUiThread(() -> handleSyncResult(json));
+        }
+
+        @JavascriptInterface
+        public void onLiveData(String json) {
+            runOnUiThread(() -> handleLiveSyncResult(json));
         }
     }
 
@@ -352,19 +560,88 @@ public class ImportActivity extends Activity {
                 scheduleRetry(root.optString("message", "正在等待登录"));
                 return;
             }
+            pendingImport = root;
+            CookieManager.getInstance().flush();
+            beginLiveSync();
+        } catch (JSONException e) {
+            scheduleRetry("课表数据解析失败，正在重试");
+        }
+    }
 
-            File output = new File(getFilesDir(), MainActivity.IMPORT_FILE_NAME);
-            try (FileOutputStream stream = new FileOutputStream(output, false)) {
-                stream.write(json.getBytes(StandardCharsets.UTF_8));
+    private void handleLiveSyncResult(String json) {
+        if (!isTrustedLivePage()) {
+            scheduleLiveRetry("正在等待智播学堂登录");
+            return;
+        }
+        try {
+            JSONObject result = new JSONObject(json);
+            if (!result.optBoolean("ok", false)) {
+                boolean authRequired = result.optBoolean("authRequired", false);
+                String message = result.optString("message", "直播课堂同步未完成");
+                syncInProgress = false;
+                if (authRequired && !liveLoginLaunched) {
+                    liveLoginLaunched = true;
+                    statusText.setText("正在通过统一认证登录智播学堂");
+                    handler.removeCallbacks(autoSyncRunnable);
+                    webView.loadUrl(liveLoginUrl());
+                    return;
+                }
+                scheduleLiveRetry(message);
+                return;
             }
 
+            if (pendingImport == null) pendingImport = new JSONObject();
+            pendingImport.put("schemaVersion", 3);
+            pendingImport.put("liveClassrooms", result.optJSONArray("classes") == null
+                    ? new org.json.JSONArray() : result.optJSONArray("classes"));
+            pendingImport.put("liveSyncedAt", result.optString("syncedAt", ""));
+            pendingImport.put("liveTenantCode", result.optString("tenantCode", "223"));
+            pendingImport.put("liveSyncStatus", "ok");
+            if (result.optJSONObject("user") != null) {
+                pendingImport.put("liveUser", result.optJSONObject("user"));
+            }
+            finishImport(true, null);
+        } catch (JSONException e) {
+            scheduleLiveRetry("直播课堂数据解析失败");
+        }
+    }
+
+    private void scheduleLiveRetry(String message) {
+        syncInProgress = false;
+        liveRetryCount++;
+        handler.removeCallbacks(autoSyncRunnable);
+        if (liveRetryCount <= 4 && isTrustedLivePage()) {
+            statusText.setText("直播课堂同步未完成，正在重试");
+            handler.postDelayed(autoSyncRunnable, 1800);
+            return;
+        }
+        finishImport(false, message);
+    }
+
+    private void finishImport(boolean liveSuccess, String liveError) {
+        if (pendingImport == null) pendingImport = new JSONObject();
+        try {
+            if (!liveSuccess) {
+                if (pendingImport.optJSONArray("liveClassrooms") == null) {
+                    pendingImport.put("liveClassrooms", new org.json.JSONArray());
+                }
+                pendingImport.put("liveSyncStatus", "error");
+                pendingImport.put("liveSyncError", liveError == null ? "直播课堂暂未同步" : liveError);
+            }
+            File output = new File(getFilesDir(), MainActivity.IMPORT_FILE_NAME);
+            try (FileOutputStream stream = new FileOutputStream(output, false)) {
+                stream.write(pendingImport.toString().getBytes(StandardCharsets.UTF_8));
+            }
             CookieManager.getInstance().flush();
-            statusText.setText("同步完成");
+            statusText.setText(liveSuccess ? "课表与直播课堂同步完成" : "课表同步完成");
             setResult(RESULT_OK, new Intent());
-            Toast.makeText(this, "同步成功", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this,
+                    liveSuccess ? "课表与直播课堂同步成功" : "课表同步成功，直播课堂暂未同步",
+                    Toast.LENGTH_SHORT).show();
             finish();
         } catch (JSONException | IOException e) {
-            scheduleRetry("保存失败，正在重试");
+            syncInProgress = false;
+            statusText.setText("保存同步结果失败，请重试");
         }
     }
 
@@ -373,10 +650,14 @@ public class ImportActivity extends Activity {
         if (statusText != null) {
             String normalized = message == null ? "" : message;
             boolean waitingLogin = normalized.contains("登录") || normalized.contains("认证") || normalized.contains("currentUser");
-            statusText.setText(waitingLogin ? "正在等待登录" : "同步未完成，正在重试");
+            statusText.setText(waitingLogin ? "正在等待统一认证" : "课表同步未完成，正在重试");
         }
         handler.removeCallbacks(autoSyncRunnable);
-        if (isTrustedSchoolPage()) handler.postDelayed(autoSyncRunnable, 1600);
+        if (syncStage == STAGE_TIMETABLE && isTrustedSchoolPage()) {
+            handler.postDelayed(autoSyncRunnable, 1600);
+        } else if (syncStage == STAGE_LIVE && isTrustedLivePage()) {
+            handler.postDelayed(autoSyncRunnable, 1800);
+        }
     }
 
     private int dp(int value) {

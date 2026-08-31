@@ -59,6 +59,11 @@
             android:windowSoftInputMode="adjustResize" />
 
         <activity
+            android:name=".LiveClassActivity"
+            android:exported="false"
+            android:screenOrientation="unspecified" />
+
+        <activity
             android:name=".MainActivity"
             android:exported="true"
             android:screenOrientation="unspecified">

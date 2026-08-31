@@ -89,6 +89,15 @@ public class MainActivity extends Activity {
         }
 
         @JavascriptInterface
+        public void openLiveClassroom(String url) {
+            runOnUiThread(() -> {
+                Intent intent = new Intent(MainActivity.this, LiveClassActivity.class);
+                intent.putExtra(LiveClassActivity.EXTRA_URL, url);
+                startActivity(intent);
+            });
+        }
+
+        @JavascriptInterface
         public String getAppVersion() {
             return UpdateManager.currentVersion(MainActivity.this);
         }

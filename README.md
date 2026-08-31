@@ -6,7 +6,7 @@
 
 ## 当前版本
 
-`v1.3.2`
+`v1.5.0`
 
 ## 已完成功能
 
@@ -14,6 +14,9 @@
 - 武理统一认证登录
 - 登录后自动读取本人当前学期课表
 - 自动同步全部教学周
+- 同一次同步流程中自动连接智播学堂并导入“我的课程”直播课堂
+- App 内直播课堂页面：正在直播 / 接下来 / 回放与近期记录
+- 点击直播课程可在 App 内复用学校登录态打开智播学堂官方课堂
 - 本地离线保存
 - 独立课表、周览、今天页面
 - 教学周切换
@@ -33,7 +36,7 @@
 
 最终 APK：
 
-`D:\武理课表\武理课表-v1.3.2.apk`
+`D:\武理课表\武理课表-v1.5.0.apk`
 
 也可在 GitHub Release 中获取：
 
@@ -49,8 +52,10 @@
 4. 在学校网页中自行完成统一认证。
 5. 登录成功进入教务系统后，App 自动识别登录状态并开始同步，无需再点击按钮。
 6. App 自动读取当前学期、全部教学周、节次、课程与考试安排。
-7. 同步完成后自动返回主界面。
-8. 课表变化时重新同步即可。
+7. 教务课表同步完成后，App 自动继续连接智播学堂；如智播学堂需要认证，会继续使用学校官方统一认证页面完成登录。
+8. App 从智播学堂“我的课程”导入本人直播课堂，不导入全校公开直播。
+9. 同步完成后自动返回主界面；首页“直播课堂”卡片可查看直播中、即将开始和回放课程。
+10. 课表或直播安排变化时重新同步即可。
 
 ## 更新机制
 
@@ -74,7 +79,8 @@ Android 不允许普通应用静默覆盖安装，因此最后一次系统确认
 - 用户名和密码由学校官方统一认证网页处理。
 - App 不提供自己的密码输入框。
 - App 不读取或保存统一认证密码。
-- 同步后的课表数据保存在 Android App 私有目录及本地 WebView 存储中。
+- 同步后的课表与直播课堂数据保存在 Android App 私有目录及本地 WebView 存储中。
+- 智播学堂 `_token` / Cookie 只在学校 WebView 页面内参与官方接口请求，不写入本地课表 JSON。
 - 不包含第三方统计 SDK。
 - 没有自建服务器上传课表数据。
 
@@ -89,14 +95,20 @@ Android 不允许普通应用静默覆盖安装，因此最后一次系统确认
 - 节次：`api/home/student/getSections.do`
 - 考试安排：`api/home/student/exams.do`
 
-接口由学校系统维护，如果以后教务系统改版，需要更新同步适配层。
+智播学堂当前适配其“我的课程”周课表接口：
+
+- 当前智播用户：`/userapi/v1/infosimple`
+- 本人周直播课：`/courseapi/v2/schedule/get-week-schedules`
+
+接口由学校系统维护，如果以后教务系统或智播学堂改版，需要更新同步适配层。
 
 ## 工程结构
 
 ```text
 app/src/main/java/com/whut/timetable/
   MainActivity.java          App 主界面与 Android 系统能力桥接
-  ImportActivity.java        统一认证、课表和考试同步
+  ImportActivity.java        统一认证、教务课表、考试与智播学堂直播课堂同步
+  LiveClassActivity.java     App 内智播学堂官方直播课堂浏览器
   ReminderScheduler.java     上课提醒调度
   AlarmReceiver.java         课程提醒通知
   TodayWidgetProvider.java   桌面今日课程小组件
@@ -117,10 +129,11 @@ app/src/main/assets/
 - Android `assembleDebug`
 - Android `assembleRelease`
 - APK Signature Scheme v2 签名校验
-- 360 / 390 / 430px 手机视口无页面级横向溢出
+- APK 内实际包名 `com.whut.timetable`、versionCode `16`、versionName `1.5.0`
 - 周览支持连续节次课程块并横向查看周末
 - 课程详情采用彩色顶部与分组信息行
+- 直播课堂数据只保存课程/场次信息，不保存智播学堂登录 token
 
-v1.3.2 APK SHA-256：
+v1.5.0 APK SHA-256：
 
-`c14cbc7c535a50d90882e54c36e0060cf179bcda3ca0698beaad616ccb5c98e6`
+`FC0AC2349A7902CADD08AB1D138D90483D066FD5B2F808D4EEFDE26A94824619`
