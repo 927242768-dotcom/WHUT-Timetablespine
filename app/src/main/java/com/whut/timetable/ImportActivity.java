@@ -13,18 +13,23 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.webkit.CookieManager;
 import android.webkit.JavascriptInterface;
+import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.widget.FrameLayout;
 import android.widget.LinearLayout;
+import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.widget.Toast;
 
 import org.json.JSONException;
 import org.json.JSONObject;
 
+import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -41,6 +46,9 @@ import androidx.core.view.WindowInsetsCompat;
  * 调用该页面本身正在使用的课表接口，并把结果保存到 App 私有存储。
  */
 public class ImportActivity extends Activity {
+    public static final String EXTRA_SYNC_MODE = "sync_mode";
+    public static final String MODE_LIVE = "live";
+
     private static final String SCHOOL_HOST = "jwxt.whut.edu.cn";
     private static final String SCHOOL_HOME =
             "https://jwxt.whut.edu.cn/jwapp/sys/homeapp/home/index.html?contextPath=/jwapp#/";
@@ -48,17 +56,21 @@ public class ImportActivity extends Activity {
     private static final String LIVE_HOME =
             "https://classroom.lgzk.whut.edu.cn/coursepage?tenant_code=223";
     private static final String LIVE_CAS =
-            "https://yjapi.lgzk.whut.edu.cn/casapi/index.php?r=auth/login&auType=&tenant_code=223&forward=";
+            "https://yjapi.lgzk.whut.edu.cn/casapi/index.php?r=auth/login&auType=cmc&tenant_code=223&forward=";
     private static final int STAGE_TIMETABLE = 0;
     private static final int STAGE_LIVE = 1;
     private static final String LIVE_DESKTOP_UA =
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
-            "(KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36 WhutTimetable/1.5.1";
+            "(KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36 WhutTimetable/1.6.0";
 
     private WebView webView;
     private TextView statusText;
+    private LinearLayout syncOverlay;
+    private TextView syncOverlayTitle;
+    private TextView syncOverlayDetail;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private boolean syncInProgress = false;
+    private boolean liveOnlyMode = false;
     private int syncStage = STAGE_TIMETABLE;
     private int liveRetryCount = 0;
     private boolean liveLoginLaunched = false;
@@ -366,6 +378,17 @@ public class ImportActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        liveOnlyMode = MODE_LIVE.equals(getIntent().getStringExtra(EXTRA_SYNC_MODE));
+        syncStage = liveOnlyMode ? STAGE_LIVE : STAGE_TIMETABLE;
+        if (liveOnlyMode) {
+            pendingImport = readExistingImport();
+            if (pendingImport == null || pendingImport.optJSONArray("weekSchedules") == null) {
+                Toast.makeText(this, "请先同步教务课表，再单独同步直播课堂", Toast.LENGTH_LONG).show();
+                finish();
+                return;
+            }
+        }
+
         getWindow().setStatusBarColor(Color.rgb(247, 249, 254));
         getWindow().setNavigationBarColor(Color.WHITE);
         getWindow().getDecorView().setSystemUiVisibility(
@@ -373,8 +396,7 @@ public class ImportActivity extends Activity {
         );
         WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
 
-        LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
+        FrameLayout root = new FrameLayout(this);
         root.setBackgroundColor(Color.WHITE);
         ViewCompat.setOnApplyWindowInsetsListener(root, (view, insets) -> {
             Insets bars = insets.getInsets(WindowInsetsCompat.Type.statusBars());
@@ -382,7 +404,14 @@ public class ImportActivity extends Activity {
             return insets;
         });
 
-        root.addView(createHeader(), new LinearLayout.LayoutParams(
+        LinearLayout page = new LinearLayout(this);
+        page.setOrientation(LinearLayout.VERTICAL);
+        page.setBackgroundColor(Color.WHITE);
+        root.addView(page, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT
+        ));
+
+        page.addView(createHeader(), new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
         ));
 
@@ -390,11 +419,25 @@ public class ImportActivity extends Activity {
         LinearLayout.LayoutParams webParams = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f
         );
-        root.addView(webView, webParams);
+        page.addView(webView, webParams);
+
+        syncOverlay = createSyncOverlay();
+        FrameLayout.LayoutParams overlayParams = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+        );
+        overlayParams.gravity = Gravity.CENTER;
+        overlayParams.setMargins(dp(28), 0, dp(28), 0);
+        root.addView(syncOverlay, overlayParams);
         setContentView(root);
 
         configureWebView();
-        webView.loadUrl(SCHOOL_HOME);
+        if (liveOnlyMode) {
+            webView.getSettings().setUserAgentString(LIVE_DESKTOP_UA);
+            statusText.setText("正在连接智播学堂");
+            webView.loadUrl(LIVE_HOME);
+        } else {
+            webView.loadUrl(SCHOOL_HOME);
+        }
     }
 
     private View createHeader() {
@@ -417,14 +460,14 @@ public class ImportActivity extends Activity {
         titleBox.setGravity(Gravity.CENTER_VERTICAL);
 
         TextView title = new TextView(this);
-        title.setText("统一认证");
+        title.setText(liveOnlyMode ? "直播课堂同步" : "统一认证");
         title.setTextSize(17);
         title.setTextColor(Color.rgb(26, 32, 44));
         title.setTypeface(null, android.graphics.Typeface.BOLD);
         titleBox.addView(title);
 
         statusText = new TextView(this);
-        statusText.setText("登录成功后将自动同步课表与直播课堂");
+        statusText.setText(liveOnlyMode ? "登录后只同步智播学堂直播课堂" : "登录成功后将自动同步教务课表");
         statusText.setTextSize(12);
         statusText.setTextColor(Color.rgb(116, 125, 145));
         titleBox.addView(statusText);
@@ -432,6 +475,58 @@ public class ImportActivity extends Activity {
         header.addView(titleBox, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         header.setMinimumHeight(dp(64));
         return header;
+    }
+
+    private LinearLayout createSyncOverlay() {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setGravity(Gravity.CENTER);
+        box.setPadding(dp(26), dp(24), dp(26), dp(22));
+        box.setVisibility(View.GONE);
+        box.setElevation(dp(14));
+
+        GradientDrawable background = new GradientDrawable();
+        background.setColor(Color.argb(246, 255, 255, 255));
+        background.setCornerRadius(dp(24));
+        background.setStroke(dp(1), Color.rgb(222, 230, 246));
+        box.setBackground(background);
+
+        ProgressBar progress = new ProgressBar(this);
+        LinearLayout.LayoutParams progressParams = new LinearLayout.LayoutParams(dp(42), dp(42));
+        progressParams.bottomMargin = dp(12);
+        box.addView(progress, progressParams);
+
+        syncOverlayTitle = new TextView(this);
+        syncOverlayTitle.setTextSize(20);
+        syncOverlayTitle.setTextColor(Color.rgb(25, 35, 53));
+        syncOverlayTitle.setTypeface(null, android.graphics.Typeface.BOLD);
+        syncOverlayTitle.setGravity(Gravity.CENTER);
+        box.addView(syncOverlayTitle, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+        ));
+
+        syncOverlayDetail = new TextView(this);
+        syncOverlayDetail.setTextSize(13);
+        syncOverlayDetail.setTextColor(Color.rgb(116, 125, 145));
+        syncOverlayDetail.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams detailParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+        );
+        detailParams.topMargin = dp(7);
+        box.addView(syncOverlayDetail, detailParams);
+        return box;
+    }
+
+    private void showSyncOverlay(String title, String detail) {
+        if (syncOverlay == null) return;
+        syncOverlayTitle.setText(title);
+        syncOverlayDetail.setText(detail);
+        syncOverlay.setVisibility(View.VISIBLE);
+        syncOverlay.bringToFront();
+    }
+
+    private void hideSyncOverlay() {
+        if (syncOverlay != null) syncOverlay.setVisibility(View.GONE);
     }
 
     private void configureWebView() {
@@ -444,7 +539,7 @@ public class ImportActivity extends Activity {
         settings.setSupportZoom(true);
         settings.setBuiltInZoomControls(true);
         settings.setDisplayZoomControls(false);
-        settings.setUserAgentString(settings.getUserAgentString() + " WhutTimetable/1.5.1");
+        settings.setUserAgentString(settings.getUserAgentString() + " WhutTimetable/1.6.0");
 
         CookieManager cookieManager = CookieManager.getInstance();
         cookieManager.setAcceptCookie(true);
@@ -468,20 +563,34 @@ public class ImportActivity extends Activity {
                 super.onPageFinished(view, url);
                 syncInProgress = false;
                 handler.removeCallbacks(autoSyncRunnable);
+                hideSyncOverlay();
                 if (syncStage == STAGE_TIMETABLE) {
                     if (isTrustedSchoolPage()) {
                         statusText.setText("正在确认教务登录状态");
-                        handler.postDelayed(autoSyncRunnable, 650);
+                        handler.postDelayed(autoSyncRunnable, 350);
                     } else {
                         statusText.setText("正在等待统一认证");
                     }
                 } else {
                     if (isTrustedLivePage()) {
                         statusText.setText("正在确认智播学堂登录状态");
-                        handler.postDelayed(autoSyncRunnable, 750);
+                        handler.postDelayed(autoSyncRunnable, 450);
                     } else {
                         statusText.setText("正在完成智播学堂统一认证");
                     }
+                }
+            }
+
+            @Override
+            public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
+                super.onReceivedError(view, request, error);
+                if (!liveOnlyMode || request == null || !request.isForMainFrame()) return;
+                Uri failed = request.getUrl();
+                String host = failed == null ? null : failed.getHost();
+                if (host != null && (host.equalsIgnoreCase("yjapi.lgzk.whut.edu.cn")
+                        || host.equalsIgnoreCase("classroom.lgzk.whut.edu.cn"))) {
+                    hideSyncOverlay();
+                    finishLiveImport(false, "智播学堂统一认证连接失败，请稍后在直播课堂页面重试");
                 }
             }
         });
@@ -522,6 +631,7 @@ public class ImportActivity extends Activity {
         }
         syncInProgress = true;
         statusText.setText("正在同步教务课表");
+        showSyncOverlay("正在同步教务课表", "正在读取当前学期、教学周、课程与考试安排…");
         webView.evaluateJavascript(SYNC_SCRIPT, null);
     }
 
@@ -533,6 +643,7 @@ public class ImportActivity extends Activity {
         }
         syncInProgress = true;
         statusText.setText("正在同步直播课堂");
+        showSyncOverlay("正在同步直播课堂", "正在读取智播学堂“我的课程”…");
         webView.evaluateJavascript(buildLiveSyncScript(), null);
     }
 
@@ -552,18 +663,6 @@ public class ImportActivity extends Activity {
 
     private String liveLoginUrl() {
         return LIVE_CAS + Uri.encode(LIVE_HOME);
-    }
-
-    private void beginLiveSync() {
-        syncStage = STAGE_LIVE;
-        syncInProgress = false;
-        liveRetryCount = 0;
-        liveLoginLaunched = false;
-        statusText.setText("课表已同步，正在连接智播学堂");
-        // 智播学堂会把移动 UA 重定向到 H5 站点；同步阶段使用桌面 UA，保持官方课程页和 API 同源。
-        webView.getSettings().setUserAgentString(LIVE_DESKTOP_UA);
-        CookieManager.getInstance().flush();
-        webView.loadUrl(LIVE_HOME);
     }
 
     private final class ImportBridge {
@@ -590,9 +689,10 @@ public class ImportActivity extends Activity {
                 scheduleRetry(root.optString("message", "正在等待登录"));
                 return;
             }
+            mergeExistingLiveData(root);
             pendingImport = root;
             CookieManager.getInstance().flush();
-            beginLiveSync();
+            finishScheduleImport();
         } catch (JSONException e) {
             scheduleRetry("课表数据解析失败，正在重试");
         }
@@ -630,7 +730,7 @@ public class ImportActivity extends Activity {
             if (result.optJSONObject("user") != null) {
                 pendingImport.put("liveUser", result.optJSONObject("user"));
             }
-            finishImport(true, null);
+            finishLiveImport(true, null);
         } catch (JSONException e) {
             scheduleLiveRetry("直播课堂数据解析失败");
         }
@@ -642,36 +742,87 @@ public class ImportActivity extends Activity {
         handler.removeCallbacks(autoSyncRunnable);
         if (liveRetryCount <= 4 && isTrustedLivePage()) {
             statusText.setText("直播课堂同步未完成，正在重试");
+            showSyncOverlay("正在重试直播课堂", "智播学堂暂时没有返回完整数据…");
             handler.postDelayed(autoSyncRunnable, 900);
             return;
         }
-        finishImport(false, message);
+        finishLiveImport(false, message);
     }
 
-    private void finishImport(boolean liveSuccess, String liveError) {
+    private void finishScheduleImport() {
+        hideSyncOverlay();
+        try {
+            writeImport(pendingImport);
+            CookieManager.getInstance().flush();
+            statusText.setText("教务课表同步完成");
+            setResult(RESULT_OK, new Intent());
+            Toast.makeText(this, "课表同步成功", Toast.LENGTH_SHORT).show();
+            finish();
+        } catch (IOException e) {
+            syncInProgress = false;
+            statusText.setText("保存课表失败，请重试");
+        }
+    }
+
+    private void finishLiveImport(boolean liveSuccess, String liveError) {
+        if (isFinishing()) return;
+        hideSyncOverlay();
+        if (pendingImport == null) pendingImport = readExistingImport();
         if (pendingImport == null) pendingImport = new JSONObject();
         try {
             if (!liveSuccess) {
-                if (pendingImport.optJSONArray("liveClassrooms") == null) {
-                    pendingImport.put("liveClassrooms", new org.json.JSONArray());
-                }
                 pendingImport.put("liveSyncStatus", "error");
                 pendingImport.put("liveSyncError", liveError == null ? "直播课堂暂未同步" : liveError);
+            } else {
+                pendingImport.remove("liveSyncError");
             }
-            File output = new File(getFilesDir(), MainActivity.IMPORT_FILE_NAME);
-            try (FileOutputStream stream = new FileOutputStream(output, false)) {
-                stream.write(pendingImport.toString().getBytes(StandardCharsets.UTF_8));
-            }
+            writeImport(pendingImport);
             CookieManager.getInstance().flush();
-            statusText.setText(liveSuccess ? "课表与直播课堂同步完成" : "课表同步完成");
+            statusText.setText(liveSuccess ? "直播课堂同步完成" : "直播课堂同步失败");
             setResult(RESULT_OK, new Intent());
             Toast.makeText(this,
-                    liveSuccess ? "课表与直播课堂同步成功" : "课表同步成功，直播课堂暂未同步",
+                    liveSuccess ? "直播课堂同步成功" : "直播课堂同步失败，课表数据不受影响",
                     Toast.LENGTH_SHORT).show();
             finish();
         } catch (JSONException | IOException e) {
             syncInProgress = false;
-            statusText.setText("保存同步结果失败，请重试");
+            statusText.setText("保存直播课堂结果失败，请重试");
+        }
+    }
+
+    private void writeImport(JSONObject root) throws IOException {
+        File output = new File(getFilesDir(), MainActivity.IMPORT_FILE_NAME);
+        try (FileOutputStream stream = new FileOutputStream(output, false)) {
+            stream.write(root.toString().getBytes(StandardCharsets.UTF_8));
+        }
+    }
+
+    private JSONObject readExistingImport() {
+        File input = new File(getFilesDir(), MainActivity.IMPORT_FILE_NAME);
+        if (!input.exists()) return null;
+        try (FileInputStream stream = new FileInputStream(input);
+             ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+            byte[] buffer = new byte[8192];
+            int count;
+            while ((count = stream.read(buffer)) != -1) output.write(buffer, 0, count);
+            return new JSONObject(output.toString(StandardCharsets.UTF_8.name()));
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private void mergeExistingLiveData(JSONObject target) {
+        JSONObject existing = readExistingImport();
+        if (existing == null) return;
+        String[] keys = new String[]{
+                "liveClassrooms", "liveSyncedAt", "liveTenantCode", "liveSyncStatus", "liveSyncError", "liveUser"
+        };
+        for (String key : keys) {
+            if (!existing.has(key)) continue;
+            try {
+                target.put(key, existing.get(key));
+            } catch (JSONException ignored) {
+            }
         }
     }
 
@@ -681,6 +832,8 @@ public class ImportActivity extends Activity {
             String normalized = message == null ? "" : message;
             boolean waitingLogin = normalized.contains("登录") || normalized.contains("认证") || normalized.contains("currentUser");
             statusText.setText(waitingLogin ? "正在等待统一认证" : "课表同步未完成，正在重试");
+            if (waitingLogin) hideSyncOverlay();
+            else showSyncOverlay("正在重试教务课表", "学校接口暂时没有返回完整数据，正在自动重试…");
         }
         handler.removeCallbacks(autoSyncRunnable);
         if (syncStage == STAGE_TIMETABLE && isTrustedSchoolPage()) {

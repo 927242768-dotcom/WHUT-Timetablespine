@@ -45,7 +45,7 @@ final class UpdateManager {
         try {
             return context.getPackageManager().getPackageInfo(context.getPackageName(), 0).versionName;
         } catch (Exception e) {
-            return "1.5.1";
+            return "1.6.0";
         }
     }
 

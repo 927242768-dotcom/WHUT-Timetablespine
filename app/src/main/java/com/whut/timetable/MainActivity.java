@@ -27,6 +27,7 @@ import java.nio.charset.StandardCharsets;
 public class MainActivity extends Activity {
     private static final int REQUEST_IMPORT = 1001;
     private static final int REQUEST_NOTIFICATIONS = 1002;
+    private static final int REQUEST_LIVE_IMPORT = 1003;
     static final String IMPORT_FILE_NAME = "latest_import.json";
     static final String NATIVE_SCHEDULE_FILE_NAME = "native_schedule.json";
 
@@ -85,6 +86,15 @@ public class MainActivity extends Activity {
             runOnUiThread(() -> {
                 Intent intent = new Intent(MainActivity.this, ImportActivity.class);
                 startActivityForResult(intent, REQUEST_IMPORT);
+            });
+        }
+
+        @JavascriptInterface
+        public void openLiveSync() {
+            runOnUiThread(() -> {
+                Intent intent = new Intent(MainActivity.this, ImportActivity.class);
+                intent.putExtra(ImportActivity.EXTRA_SYNC_MODE, ImportActivity.MODE_LIVE);
+                startActivityForResult(intent, REQUEST_LIVE_IMPORT);
             });
         }
 
@@ -180,14 +190,15 @@ public class MainActivity extends Activity {
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode != REQUEST_IMPORT || resultCode != RESULT_OK) return;
+        if ((requestCode != REQUEST_IMPORT && requestCode != REQUEST_LIVE_IMPORT) || resultCode != RESULT_OK) return;
 
         File importFile = new File(getFilesDir(), IMPORT_FILE_NAME);
         try {
             String json = readUtf8(importFile);
             String quoted = JSONObject.quote(json);
+            String source = requestCode == REQUEST_LIVE_IMPORT ? "live" : "schedule";
             webView.evaluateJavascript(
-                    "window.WhutSchedule && window.WhutSchedule.receiveNativeImport(" + quoted + ");",
+                    "window.WhutSchedule && window.WhutSchedule.receiveNativeImport(" + quoted + ", '" + source + "');",
                     null
             );
         } catch (IOException e) {
