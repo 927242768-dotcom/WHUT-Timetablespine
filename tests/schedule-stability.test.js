@@ -282,12 +282,14 @@ async function inspectModal(cdp) {
   return evaluate(cdp, `(() => {
     const modal=document.querySelector('.course-modal'), close=document.querySelector('#close-course-modal'), hero=document.querySelector('.course-modal-hero');
     const m=modal.getBoundingClientRect(), c=close.getBoundingClientRect(), h=hero.getBoundingClientRect();
-    const cs=getComputedStyle(close), hs=getComputedStyle(hero);
+    const cs=getComputedStyle(close), hs=getComputedStyle(hero), ms=getComputedStyle(modal);
+    const popupStyles=['.course-modal','.editor-modal','.update-modal','.confirm-card','.bottom-sheet'].map(selector=>{const style=getComputedStyle(document.querySelector(selector));return {selector,backgroundColor:style.backgroundColor,backgroundImage:style.backgroundImage};});
     return {
       hidden: document.querySelector('#course-modal-backdrop').hidden,
-      modal:{left:m.left,top:m.top,right:m.right,bottom:m.bottom},
+      modal:{left:m.left,top:m.top,right:m.right,bottom:m.bottom,backgroundColor:ms.backgroundColor,backgroundImage:ms.backgroundImage},
       close:{left:c.left,top:c.top,right:c.right,bottom:c.bottom,width:c.width,height:c.height,position:cs.position,zIndex:Number(cs.zIndex)||0},
-      hero:{left:h.left,top:h.top,right:h.right,bottom:h.bottom,zIndex:Number(hs.zIndex)||0},
+      hero:{left:h.left,top:h.top,right:h.right,bottom:h.bottom,zIndex:Number(hs.zIndex)||0,backgroundImage:hs.backgroundImage},
+      popupStyles,
       text: document.querySelector('#course-modal-content')?.innerText || ''
     };
   })()`);
@@ -303,6 +305,12 @@ function assertModalStable(modal, label) {
   assert(modal.close.right <= modal.modal.right - 10, `${label}: 关闭按钮越过弹窗右边界`);
   assert(modal.close.bottom <= modal.modal.bottom, `${label}: 关闭按钮越过弹窗下边界`);
   assert(modal.close.zIndex > modal.hero.zIndex, `${label}: 关闭按钮层级没有高于课程 Hero`);
+  assert.strictEqual(modal.modal.backgroundImage, 'none', `${label}: 课程详情弹窗仍使用透明背景图层`);
+  assert(!modal.hero.backgroundImage.includes('rgba('), `${label}: 课程 Hero 仍含透明颜色`);
+  modal.popupStyles.forEach(style=>{
+    assert.strictEqual(style.backgroundImage, 'none', `${label}: ${style.selector} 仍使用透明背景图层`);
+    assert(!/rgba\([^)]*,\s*0(?:\.|\))/.test(style.backgroundColor), `${label}: ${style.selector} 背景仍透明: ${style.backgroundColor}`);
+  });
 }
 
 async function stressModal(cdp, width, screenshotSuffix = '') {
@@ -349,7 +357,7 @@ async function stressModal(cdp, width, screenshotSuffix = '') {
     await cdp.open();
     await cdp.call('Page.enable');
     await cdp.call('Runtime.enable');
-    await cdp.call('Page.addScriptToEvaluateOnNewDocument', { source: `window.WhutBridge={getAppVersion(){return '1.6.5'},setDarkMode(){},saveNativeSchedule(){},configureReminders(){},requestNotificationPermission(){}};` });
+    await cdp.call('Page.addScriptToEvaluateOnNewDocument', { source: `window.WhutBridge={getAppVersion(){return '1.6.6'},setDarkMode(){},saveNativeSchedule(){},configureReminders(){},requestNotificationPermission(){}};` });
     await cdp.call('Page.navigate', { url: appUrl });
     await wait(350);
 

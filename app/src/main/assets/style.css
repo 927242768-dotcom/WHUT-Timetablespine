@@ -321,5 +321,27 @@ body.native-webview.dark .nav-item.active{
   background:linear-gradient(145deg,#3d4f6a,#2b3b50);
   border-color:#536b8d
 }
+/* 所有原生 WebView 弹窗本体必须完全不透明，底层课程、日期和文字不可透出。 */
+body.native-webview .course-modal,
+body.native-webview .editor-modal,
+body.native-webview .update-modal,
+body.native-webview .confirm-card,
+body.native-webview .bottom-sheet{
+  background-color:#ffffff!important;
+  background-image:none!important;
+  border-color:#ffffff!important
+}
+body.native-webview .course-modal-hero{
+  background:linear-gradient(135deg,color-mix(in srgb,var(--course-color) 78%,#ffffff),color-mix(in srgb,var(--course-color) 50%,#b978ee))!important
+}
+body.native-webview.dark .course-modal,
+body.native-webview.dark .editor-modal,
+body.native-webview.dark .update-modal,
+body.native-webview.dark .confirm-card,
+body.native-webview.dark .bottom-sheet{
+  background-color:#1b2433!important;
+  background-image:none!important;
+  border-color:#34445c!important
+}
 body.native-webview #screen-schedule .course-card{isolation:auto}
 body.native-webview #screen-schedule{overscroll-behavior-y:contain}
