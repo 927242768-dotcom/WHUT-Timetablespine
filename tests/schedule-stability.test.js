@@ -145,6 +145,8 @@ async function inspectSchedule(cdp) {
       bodyAnimation: getComputedStyle(document.body).animationName,
       bodyBeforeDisplay: getComputedStyle(document.body,'::before').display,
       bottomNavBackdrop: getComputedStyle(document.querySelector('.bottom-nav')).backdropFilter || getComputedStyle(document.querySelector('.bottom-nav')).webkitBackdropFilter || 'none',
+      bottomNavBackground: getComputedStyle(document.querySelector('.bottom-nav')).backgroundImage,
+      inactiveNavColor: getComputedStyle(document.querySelector('.nav-item:not(.active)')).color,
       nextCardBackdrop: getComputedStyle(document.querySelector('.next-card')).backdropFilter || getComputedStyle(document.querySelector('.next-card')).webkitBackdropFilter || 'none',
       liveEntryBackdrop: getComputedStyle(document.querySelector('.live-entry-card')).backdropFilter || getComputedStyle(document.querySelector('.live-entry-card')).webkitBackdropFilter || 'none',
       courseIsolation: cards[0] ? getComputedStyle(cards[0]).isolation : ''
@@ -172,6 +174,8 @@ function assertMondayStable(state, width, label) {
   assert.strictEqual(state.bodyAnimation, 'none', `${label}: 原生 WebView 仍在运行持续背景动画`);
   assert.strictEqual(state.bodyBeforeDisplay, 'none', `${label}: fixed blur 背景层仍在原生 WebView 中参与合成`);
   assert.strictEqual(state.bottomNavBackdrop, 'none', `${label}: Bottom Navigation 仍启用 backdrop-filter`);
+  assert(/0\.9[026]/.test(state.bottomNavBackground), `${label}: Bottom Navigation 原生 WebView 背景仍过度透明: ${state.bottomNavBackground}`);
+  assert(state.inactiveNavColor !== 'rgb(147, 158, 175)', `${label}: 未提高未选中页签文字对比度`);
   assert.strictEqual(state.nextCardBackdrop, 'none', `${label}: 下一节卡片仍启用 backdrop-filter`);
   assert.strictEqual(state.liveEntryBackdrop, 'none', `${label}: 直播入口仍启用 backdrop-filter`);
   assert.strictEqual(state.courseIsolation, 'auto', `${label}: 主课表课程卡仍额外创建 isolation stacking context`);
@@ -343,7 +347,7 @@ async function stressModal(cdp, width, screenshotSuffix = '') {
     await cdp.open();
     await cdp.call('Page.enable');
     await cdp.call('Runtime.enable');
-    await cdp.call('Page.addScriptToEvaluateOnNewDocument', { source: `window.WhutBridge={getAppVersion(){return '1.6.3'},setDarkMode(){},saveNativeSchedule(){},configureReminders(){},requestNotificationPermission(){}};` });
+    await cdp.call('Page.addScriptToEvaluateOnNewDocument', { source: `window.WhutBridge={getAppVersion(){return '1.6.4'},setDarkMode(){},saveNativeSchedule(){},configureReminders(){},requestNotificationPermission(){}};` });
     await cdp.call('Page.navigate', { url: appUrl });
     await wait(350);
 
