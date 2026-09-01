@@ -17,7 +17,7 @@ const fixture = {
     week: { serialNumber: 1, name: '第1周', startDate: '2026-09-07', endDate: '2026-09-13' },
     items: [
       { courseName: 'FPGA原理及通信电路设计', dayOfWeek: 1, beginSection: 1, endSection: 2, beginTime: '08:00', endTime: '09:35', classroomName: '北院-爱特楼-103' },
-      { courseName: '电磁场与电磁波A', dayOfWeek: 1, beginSection: 3, endSection: 4, beginTime: '09:55', endTime: '11:30', classroomName: '北院-爱特楼-103' },
+      { courseName: '电磁场与电磁波A', dayOfWeek: 1, beginSection: 3, endSection: 5, beginTime: '09:55', endTime: '12:20', classroomName: '北院-爱特楼-103' },
       { courseName: '现代交换技术', dayOfWeek: 1, beginSection: 9, endSection: 10, beginTime: '16:45', endTime: '18:20', classroomName: '北院-学海楼-610' }
     ]
   }]
@@ -107,7 +107,10 @@ class CdpClient {
 
 async function evaluate(cdp, expression) {
   const result = await cdp.call('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true });
-  if (result.exceptionDetails) throw new Error(result.exceptionDetails.text || 'Runtime.evaluate failed');
+  if (result.exceptionDetails) {
+    const detail = result.exceptionDetails.exception?.description || result.exceptionDetails.text || 'Runtime.evaluate failed';
+    throw new Error(detail);
+  }
   return result.result.value;
 }
 
@@ -175,6 +178,12 @@ async function inspectScreen(cdp, screen) {
     await cdp.open();
     await cdp.call('Page.enable');
     await cdp.call('Runtime.enable');
+    await cdp.call('Page.navigate', { url: appUrl });
+    for (let i = 0; i < 40; i++) {
+      if (await evaluate(cdp, 'document.readyState')) break;
+      await wait(50);
+    }
+    await wait(250);
 
     for (const width of [360, 390, 430]) {
       await cdp.call('Emulation.setDeviceMetricsOverride', { width, height: 900, deviceScaleFactor: 1, mobile: true });
