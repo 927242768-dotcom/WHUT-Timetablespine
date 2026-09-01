@@ -265,3 +265,37 @@ body.dark .live-summary-pill{background:rgba(255,255,255,.035);border-color:rgba
 body.dark .live-class-card{background:linear-gradient(145deg,color-mix(in srgb,var(--live-color) 12%,rgba(48,61,81,.64)),rgba(27,39,55,.46));border-color:color-mix(in srgb,var(--live-color) 18%,rgba(139,160,192,.18));box-shadow:0 10px 26px rgba(0,0,0,.16),inset 0 1px 0 rgba(220,233,255,.08)}
 body.dark .live-status,body.dark .live-class-action{background:color-mix(in srgb,var(--live-color) 12%,rgba(48,61,81,.44));border-color:color-mix(in srgb,var(--live-color) 18%,rgba(140,161,194,.16))}.live-empty{backdrop-filter:none;-webkit-backdrop-filter:none}body.dark .live-empty{background:linear-gradient(145deg,rgba(43,56,75,.56),rgba(27,38,53,.38));border-color:rgba(139,160,192,.17)}
 @media(max-width:370px){.live-entry-card{grid-template-columns:44px minmax(0,1fr) auto;padding:13px 12px;gap:10px}.live-entry-icon{width:44px;height:44px}.live-class-card{padding:14px 12px;gap:9px}.live-class-action{min-width:62px;padding-left:7px;padding-right:7px}}
+
+
+/* v1.6.3 Android WebView 垂直滚动稳定性：避免 fixed blur / backdrop-filter 组合触发 Chromium 合成层丢帧。
+   保留 Liquid Glass 的渐变、描边与阴影，只在原生 WebView 中关闭真实模糊和持续 GPU 动画。 */
+body.native-webview{animation:none}
+body.native-webview::before,body.native-webview::after{display:none;animation:none;filter:none;will-change:auto}
+body.native-webview .term-row,
+body.native-webview .next-card,
+body.native-webview .today-summary,
+body.native-webview .exam-summary,
+body.native-webview .exam-rhythm-panel,
+body.native-webview .exam-next-panel,
+body.native-webview .settings-group,
+body.native-webview .week-switcher,
+body.native-webview .week-board,
+body.native-webview .bottom-nav,
+body.native-webview .course-modal,
+body.native-webview .editor-modal,
+body.native-webview .update-modal,
+body.native-webview .confirm-card,
+body.native-webview .bottom-sheet,
+body.native-webview .sheet-backdrop,
+body.native-webview .modal-backdrop,
+body.native-webview .icon-button,
+body.native-webview .round-button,
+body.native-webview .close-button,
+body.native-webview .live-entry-card,
+body.native-webview .live-summary{
+  backdrop-filter:none!important;
+  -webkit-backdrop-filter:none!important;
+}
+body.native-webview .week-switcher::after{mix-blend-mode:normal}
+body.native-webview #screen-schedule .course-card{isolation:auto}
+body.native-webview #screen-schedule{overscroll-behavior-y:contain}

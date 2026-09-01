@@ -139,7 +139,15 @@ async function inspectSchedule(cdp) {
       }),
       scrollWidth: document.documentElement.scrollWidth,
       navBottomGap: innerHeight - nav.bottom,
-      dateChipCount: document.querySelectorAll('#date-strip > .date-chip').length
+      dateChipCount: document.querySelectorAll('#date-strip > .date-chip').length,
+      scrollY: window.scrollY,
+      nativeWebview: document.body.classList.contains('native-webview'),
+      bodyAnimation: getComputedStyle(document.body).animationName,
+      bodyBeforeDisplay: getComputedStyle(document.body,'::before').display,
+      bottomNavBackdrop: getComputedStyle(document.querySelector('.bottom-nav')).backdropFilter || getComputedStyle(document.querySelector('.bottom-nav')).webkitBackdropFilter || 'none',
+      nextCardBackdrop: getComputedStyle(document.querySelector('.next-card')).backdropFilter || getComputedStyle(document.querySelector('.next-card')).webkitBackdropFilter || 'none',
+      liveEntryBackdrop: getComputedStyle(document.querySelector('.live-entry-card')).backdropFilter || getComputedStyle(document.querySelector('.live-entry-card')).webkitBackdropFilter || 'none',
+      courseIsolation: cards[0] ? getComputedStyle(cards[0]).isolation : ''
     };
   })()`);
 }
@@ -160,6 +168,13 @@ function assertMondayStable(state, width, label) {
   assert(state.scrollWidth <= width, `${label}: 页面出现横向溢出 ${state.scrollWidth}`);
   assert(state.navBottomGap >= 8 && state.navBottomGap <= 13, `${label}: Bottom Navigation 不在底部 ${state.navBottomGap}`);
   assert.strictEqual(state.dateChipCount, 7, `${label}: 日期节点数量异常`);
+  assert.strictEqual(state.nativeWebview, true, `${label}: 未启用 Android WebView 稳定模式`);
+  assert.strictEqual(state.bodyAnimation, 'none', `${label}: 原生 WebView 仍在运行持续背景动画`);
+  assert.strictEqual(state.bodyBeforeDisplay, 'none', `${label}: fixed blur 背景层仍在原生 WebView 中参与合成`);
+  assert.strictEqual(state.bottomNavBackdrop, 'none', `${label}: Bottom Navigation 仍启用 backdrop-filter`);
+  assert.strictEqual(state.nextCardBackdrop, 'none', `${label}: 下一节卡片仍启用 backdrop-filter`);
+  assert.strictEqual(state.liveEntryBackdrop, 'none', `${label}: 直播入口仍启用 backdrop-filter`);
+  assert.strictEqual(state.courseIsolation, 'auto', `${label}: 主课表课程卡仍额外创建 isolation stacking context`);
 }
 
 async function clickDay(cdp, day) {
@@ -177,6 +192,47 @@ async function swipeDateStrip(cdp, leftToRight) {
     await cdp.call('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x, y, radiusX: 4, radiusY: 4, force: 1 }] });
   }
   await cdp.call('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+}
+
+async function swipePageVertically(cdp, scrollDown) {
+  const viewport = await evaluate(cdp, `({width:innerWidth,height:innerHeight})`);
+  const x = Math.round(viewport.width * 0.52);
+  const startY = Math.round(viewport.height * (scrollDown ? 0.76 : 0.28));
+  const endY = Math.round(viewport.height * (scrollDown ? 0.28 : 0.76));
+  await cdp.call('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y: startY, radiusX: 5, radiusY: 5, force: 1 }] });
+  for (let i = 1; i <= 6; i++) {
+    const y = Math.round(startY + (endY - startY) * i / 6);
+    await cdp.call('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x, y, radiusX: 5, radiusY: 5, force: 1 }] });
+  }
+  await cdp.call('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  await wait(18);
+}
+
+async function stressVerticalScroll(cdp, width, screenshotSuffix = '') {
+  await clickDay(cdp, 1);
+  await evaluate(cdp, `window.scrollTo(0,0); window.__thirdCardProbe=document.querySelectorAll('#course-list > .course-card')[2]; 'ok'`);
+  assertMondayStable(await inspectSchedule(cdp), width, `${width}px 垂直滑动前`);
+
+  // 用户真实复现路径：不切日期，只在课表页反复上下滑动。30 轮 = 60 次纵向触摸手势。
+  for (let round = 0; round < 30; round++) {
+    await swipePageVertically(cdp, true);
+    if (round % 5 === 0) assertMondayStable(await inspectSchedule(cdp), width, `${width}px 向下滑动第 ${round + 1} 轮`);
+    await swipePageVertically(cdp, false);
+    if (round % 5 === 0) assertMondayStable(await inspectSchedule(cdp), width, `${width}px 向上滑动第 ${round + 1} 轮`);
+  }
+
+  assert.strictEqual(await evaluate(cdp, `window.__thirdCardProbe===document.querySelectorAll('#course-list > .course-card')[2]`), true, `${width}px 纵向滑动期间第三张课程卡 DOM 被替换`);
+  assertMondayStable(await inspectSchedule(cdp), width, `${width}px 上下滑动 60 次后`);
+
+  // 再停在页面下部截图，专门检查第三张卡在滚动后的绘制状态。
+  await swipePageVertically(cdp, true);
+  await swipePageVertically(cdp, true);
+  await wait(80);
+  assertMondayStable(await inspectSchedule(cdp), width, `${width}px 滚动到底部后`);
+  await capture(cdp, `schedule-vertical-scroll-${width}${screenshotSuffix}.png`);
+  await evaluate(cdp, `window.scrollTo(0,0); 'ok'`);
+  await wait(60);
+  assertMondayStable(await inspectSchedule(cdp), width, `${width}px 回到顶部后`);
 }
 
 async function stressDates(cdp, width) {
@@ -287,6 +343,7 @@ async function stressModal(cdp, width, screenshotSuffix = '') {
     await cdp.open();
     await cdp.call('Page.enable');
     await cdp.call('Runtime.enable');
+    await cdp.call('Page.addScriptToEvaluateOnNewDocument', { source: `window.WhutBridge={getAppVersion(){return '1.6.3'},setDarkMode(){},saveNativeSchedule(){},configureReminders(){},requestNotificationPermission(){}};` });
     await cdp.call('Page.navigate', { url: appUrl });
     await wait(350);
 
@@ -296,6 +353,7 @@ async function stressModal(cdp, width, screenshotSuffix = '') {
       await setFixtureAndReload(cdp, false);
       await clickDay(cdp, 1);
       assertMondayStable(await inspectSchedule(cdp), width, `${width}px 首次进入`);
+      await stressVerticalScroll(cdp, width);
       await stressDates(cdp, width);
       await stressModal(cdp, width);
       await clickDay(cdp, 1);
@@ -306,12 +364,13 @@ async function stressModal(cdp, width, screenshotSuffix = '') {
     await setFixtureAndReload(cdp, true);
     await clickDay(cdp, 1);
     assert.strictEqual(await evaluate(cdp, `document.body.classList.contains('dark')`), true, '深色模式未生效');
+    await stressVerticalScroll(cdp, 390, '-dark');
     await stressDates(cdp, 390);
     await stressModal(cdp, 390, '-dark');
     await clickDay(cdp, 1);
     await capture(cdp, 'schedule-stress-390-dark.png');
 
-    console.log('schedule-stability.test.js: 360/390/430 + 120 fast + 56 slow + touch swipe + nav + 20 modal + dark passed');
+    console.log('schedule-stability.test.js: native WebView fallback + 60 vertical swipes + 120 fast + 56 slow + touch swipe + nav + 20 modal + dark passed');
   } finally {
     try { cdp?.close(); } catch (_) {}
     server.close();
