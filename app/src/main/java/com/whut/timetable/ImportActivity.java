@@ -61,7 +61,7 @@ public class ImportActivity extends Activity {
     private static final int STAGE_LIVE = 1;
     private static final String LIVE_DESKTOP_UA =
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
-            "(KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36 WhutTimetable/1.6.0";
+            "(KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36 WhutTimetable/1.6.7";
 
     private WebView webView;
     private TextView statusText;
@@ -73,7 +73,7 @@ public class ImportActivity extends Activity {
     private boolean liveOnlyMode = false;
     private int syncStage = STAGE_TIMETABLE;
     private int liveRetryCount = 0;
-    private boolean liveLoginLaunched = false;
+    private int liveLoginAttempts = 0;
     private JSONObject pendingImport;
     private final Runnable autoSyncRunnable = this::startSync;
 
@@ -238,13 +238,25 @@ public class ImportActivity extends Activity {
      */
     private String buildLiveSyncScript() {
         String weeksJson = "[]";
-        if (pendingImport != null && pendingImport.optJSONArray("weeks") != null) {
+        if (pendingImport != null && pendingImport.optJSONArray("weeks") != null
+                && pendingImport.optJSONArray("weeks").length() > 0) {
             weeksJson = pendingImport.optJSONArray("weeks").toString();
+        } else if (pendingImport != null && pendingImport.optJSONArray("weekSchedules") != null) {
+            org.json.JSONArray fallbackWeeks = new org.json.JSONArray();
+            org.json.JSONArray schedules = pendingImport.optJSONArray("weekSchedules");
+            for (int i = 0; i < schedules.length(); i++) {
+                JSONObject schedule = schedules.optJSONObject(i);
+                JSONObject week = schedule == null ? null : schedule.optJSONObject("week");
+                if (week != null) fallbackWeeks.put(week);
+            }
+            weeksJson = fallbackWeeks.toString();
         }
+        String nativeTokenJson = JSONObject.quote(readNativeLiveToken());
         return """
                 (async () => {
                   const bridge = window.WhutImportBridge;
                   const sourceWeeks = __WEEKS__;
+                  const nativeCookieToken = __NATIVE_TOKEN__;
                   const send = (payload) => {
                     try { bridge.onLiveData(JSON.stringify(payload)); } catch (_) {}
                   };
@@ -258,33 +270,95 @@ public class ImportActivity extends Activity {
                     const entry = document.cookie.split(';').map(v => v.trim()).find(v => v.startsWith(prefix));
                     return entry ? entry.slice(prefix.length) : '';
                   };
-                  const getToken = () => {
-                    let raw = getCookie('_token');
-                    try { raw = decodeURIComponent(raw || ''); } catch (_) {}
-                    const serialized = raw.match(/"_token";i:\\d+;s:\\d+:"([^"]+)"/);
+                  const normalizeToken = (value) => {
+                    let raw = String(value || '').trim();
+                    if (!raw) return '';
+                    for (let i = 0; i < 2; i++) {
+                      try {
+                        const decoded = decodeURIComponent(raw);
+                        if (decoded === raw) break;
+                        raw = decoded;
+                      } catch (_) { break; }
+                    }
+                    try {
+                      const parsed = JSON.parse(raw);
+                      if (parsed && (parsed._token || parsed.token)) raw = parsed._token || parsed.token;
+                    } catch (_) {}
+                    const serialized = raw.match(/s:\\d+:"_token";s:\\d+:"([^"]+)"/)
+                      || raw.match(/"_token";s:\\d+:"([^"]+)"/)
+                      || raw.match(/"_token";i:\\d+;s:\\d+:"([^"]+)"/);
                     if (serialized && serialized[1]) raw = serialized[1];
-                    if (!raw) raw = new URLSearchParams(location.search).get('token') || '';
-                    return raw;
+                    if ((raw.startsWith('"') && raw.endsWith('"')) || (raw.startsWith("'") && raw.endsWith("'"))) {
+                      raw = raw.slice(1, -1);
+                    }
+                    return raw.trim();
+                  };
+                  const storageToken = () => {
+                    for (const storage of [window.localStorage, window.sessionStorage]) {
+                      try {
+                        for (const key of ['_token','token','access_token','accessToken']) {
+                          const value = storage && storage.getItem(key);
+                          if (value) return value;
+                        }
+                      } catch (_) {}
+                    }
+                    return '';
+                  };
+                  const getToken = (userJson, user) => {
+                    const query = new URLSearchParams(location.search);
+                    const candidates = [
+                      nativeCookieToken,
+                      getCookie('_token'),
+                      getCookie('token'),
+                      query.get('token'),
+                      query.get('_token'),
+                      user && (user.token || user._token || user.access_token || user.accessToken),
+                      userJson && (userJson.token || userJson._token || userJson.access_token || userJson.accessToken),
+                      storageToken()
+                    ];
+                    for (const candidate of candidates) {
+                      const token = normalizeToken(candidate);
+                      if (token) return token;
+                    }
+                    return '';
                   };
                   const formatDate = (date) => {
                     const pad = n => String(n).padStart(2, '0');
                     return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
                   };
+                  const normalizeDateValue = (value) => {
+                    const text = String(value || '').trim();
+                    const match = text.match(/^(\\d{4})[-/]?(\\d{1,2})[-/]?(\\d{1,2})/);
+                    if (!match) return text;
+                    return `${match[1]}-${String(match[2]).padStart(2,'0')}-${String(match[3]).padStart(2,'0')}`;
+                  };
                   const normalizeWeeks = () => {
                     const usable = Array.isArray(sourceWeeks) ? sourceWeeks.filter(w => w && w.startDate && w.endDate) : [];
-                    if (usable.length) return usable.map(w => ({startDate:String(w.startDate), endDate:String(w.endDate)}));
+                    if (usable.length) return usable.map(w => ({
+                      startDate:normalizeDateValue(w.startDate),
+                      endDate:normalizeDateValue(w.endDate)
+                    }));
                     const now = new Date(), day = now.getDay() || 7;
                     const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
                     monday.setDate(monday.getDate() - day + 1);
                     const sunday = new Date(monday); sunday.setDate(sunday.getDate() + 6);
                     return [{startDate:formatDate(monday), endDate:formatDate(sunday)}];
                   };
+                  const authLikePayload = (json) => {
+                    if (!json || typeof json !== 'object') return false;
+                    const code = json.code == null ? json.status : json.code;
+                    const message = String(json.msg || json.message || json.error || '').toLowerCase();
+                    return Number(code) === 401 || Number(code) === 403
+                      || /登录|认证|未授权|token|login|auth|unauthorized/.test(message);
+                  };
                   const readJson = async (response) => {
                     if (response.status === 401 || response.status === 403) authError('智播学堂登录已失效');
                     if (!response.ok) throw new Error('智播学堂请求失败：' + response.status);
                     const type = (response.headers.get('content-type') || '').toLowerCase();
                     if (type.includes('text/html')) authError('智播学堂正在等待统一认证');
-                    return response.json();
+                    const json = await response.json();
+                    if (authLikePayload(json)) authError(json.msg || json.message || '智播学堂登录已失效');
+                    return json;
                   };
 
                   try {
@@ -292,50 +366,71 @@ public class ImportActivity extends Activity {
                       credentials:'include', cache:'no-store', headers:{Accept:'application/json'}
                     });
                     const userJson = await readJson(userResponse);
-                    const user = userJson && (userJson.params || (userJson.data && userJson.data.params) || userJson.data);
-                    if (!user || !user.id) authError('没有读取到智播学堂登录用户');
+                    const user = userJson && (userJson.params
+                      || (userJson.data && userJson.data.params)
+                      || userJson.data
+                      || userJson.result
+                      || userJson.user);
+                    const userId = user && (user.id || user.user_id || user.userId || user.uid);
+                    if (!user || !userId) authError('没有读取到智播学堂登录用户');
 
-                    const tenantCode = String(user.tenant_id || user.tenant_code || 223);
-                    const token = getToken();
-                    if (!token) authError('没有读取到智播学堂登录凭据');
+                    const tenantCode = String(user.tenant_id || user.tenant_code || user.tenantId || 223);
+                    const token = getToken(userJson, user);
                     const weeks = normalizeWeeks();
 
+                    const firstArray = (...values) => values.find(value => Array.isArray(value)) || [];
                     const loadWeek = async (week) => {
                       const query = new URLSearchParams({
-                        user_id:String(user.id),
+                        user_id:String(userId),
                         tenant_id:tenantCode,
                         start_at:week.startDate,
-                        end_at:week.endDate,
-                        token
+                        end_at:week.endDate
                       });
+                      if (token) query.set('token', token);
                       const response = await fetch('/courseapi/v2/schedule/get-week-schedules?' + query.toString(), {
                         credentials:'include', cache:'no-store', headers:{Accept:'application/json'}
                       });
                       const json = await readJson(response);
-                      const days = (json && json.result && Array.isArray(json.result.list)) ? json.result.list :
-                        (json && json.data && json.data.result && Array.isArray(json.data.result.list) ? json.data.result.list : []);
+                      const days = firstArray(
+                        json && json.result && json.result.list,
+                        json && json.data && json.data.result && json.data.result.list,
+                        json && json.data && json.data.list,
+                        json && json.result && json.result.data,
+                        json && json.list,
+                        Array.isArray(json && json.result) ? json.result : null,
+                        Array.isArray(json && json.data) ? json.data : null
+                      );
                       const out = [];
                       days.forEach(day => {
-                        const courses = day && Array.isArray(day.course) ? day.course : [];
+                        let courses = firstArray(
+                          day && day.course,
+                          day && day.courses,
+                          day && day.list,
+                          day && day.schedule,
+                          day && day.schedules
+                        );
+                        if (!courses.length && day && (day.course_id != null || day.sub_id != null || day.start_at != null)) {
+                          courses = [day];
+                        }
                         courses.forEach(item => {
                           if (!item) return;
                           out.push({
-                            courseId:String(item.course_id == null ? '' : item.course_id),
-                            subId:String(item.id == null ? (item.sub_id == null ? '' : item.sub_id) : item.id),
-                            title:String(item.course_title || item.title || '直播课堂'),
-                            room:String(item.room_name || ''),
-                            teacher:String(item.lecturer_name || item.teacher_name || ''),
-                            startAt:Number(item.start_at || 0),
-                            endAt:Number(item.end_at || 0),
+                            courseId:String(item.course_id == null ? (item.courseId == null ? '' : item.courseId) : item.course_id),
+                            subId:String(item.id == null ? (item.sub_id == null ? (item.subId == null ? '' : item.subId) : item.sub_id) : item.id),
+                            title:String(item.course_title || item.course_name || item.title || item.name || '直播课堂'),
+                            room:String(item.room_name || item.room || item.classroom_name || ''),
+                            teacher:String(item.lecturer_name || item.teacher_name || item.teacher || ''),
+                            startAt:Number(item.start_at || item.startAt || item.begin_at || 0),
+                            endAt:Number(item.end_at || item.endAt || item.finish_at || 0),
                             status:Number(item.status || 0),
-                            playbackStatus:item.playback_status == null ? null : item.playback_status,
-                            multiType:String(item.multi_type || ''),
-                            oliveType:String(item.olive_type || item.sub_type || ''),
-                            publicType:item.is_public == null ? null : item.is_public,
-                            reviewType:item.sub_review_type == null ? null : item.sub_review_type,
+                            playbackStatus:item.playback_status == null ? item.playbackStatus ?? null : item.playback_status,
+                            multiType:String(item.multi_type || item.multiType || ''),
+                            oliveType:String(item.olive_type || item.sub_type || item.oliveType || ''),
+                            publicType:item.is_public == null ? (item.publicType ?? null) : item.is_public,
+                            reviewType:item.sub_review_type == null ? (item.reviewType ?? null) : item.sub_review_type,
                             early:item.early == null ? null : item.early,
                             tenantCode,
-                            sourceDay:String((day && (day.day || day.date)) || ''),
+                            sourceDay:String((day && (day.day || day.date || day.schedule_date)) || ''),
                             weekStart:week.startDate,
                             weekEnd:week.endDate
                           });
@@ -345,10 +440,43 @@ public class ImportActivity extends Activity {
                     };
 
                     const collected = [];
-                    // 直播课堂同样按八周一批并行同步，减少整学期等待时间。
-                    for (let i = 0; i < weeks.length; i += 8) {
-                      const batch = await Promise.all(weeks.slice(i, i + 8).map(loadWeek));
-                      batch.forEach(list => collected.push(...list));
+                    const failedWeeks = [];
+                    // 智播接口对瞬时并发比较敏感；每批四周，并把失败周单独重试，避免一周失败拖垮整学期。
+                    for (let i = 0; i < weeks.length; i += 4) {
+                      const current = weeks.slice(i, i + 4);
+                      const batch = await Promise.all(current.map(async week => {
+                        try {
+                          return {ok:true, week, list:await loadWeek(week)};
+                        } catch (error) {
+                          return {ok:false, week, error};
+                        }
+                      }));
+                      batch.forEach(result => {
+                        if (result.ok) collected.push(...result.list);
+                        else {
+                          if (result.error && result.error.authRequired) throw result.error;
+                          failedWeeks.push(result.week);
+                        }
+                      });
+                    }
+                    for (const week of failedWeeks) {
+                      let success = false;
+                      let lastError = null;
+                      for (let attempt = 0; attempt < 2 && !success; attempt++) {
+                        try {
+                          if (attempt) await new Promise(resolve => setTimeout(resolve, 500));
+                          collected.push(...await loadWeek(week));
+                          success = true;
+                        } catch (error) {
+                          if (error && error.authRequired) throw error;
+                          lastError = error;
+                        }
+                      }
+                      if (!success) {
+                        throw new Error(lastError && lastError.message
+                          ? lastError.message
+                          : '部分教学周读取失败，请重新同步直播课堂');
+                      }
                     }
                     const unique = [];
                     const seen = new Set();
@@ -372,7 +500,8 @@ public class ImportActivity extends Activity {
                     });
                   }
                 })();
-                """.replace("__WEEKS__", weeksJson);
+                """.replace("__WEEKS__", weeksJson)
+                .replace("__NATIVE_TOKEN__", nativeTokenJson);
     }
 
     @Override
@@ -574,7 +703,8 @@ public class ImportActivity extends Activity {
                 } else {
                     if (isTrustedLivePage()) {
                         statusText.setText("正在确认智播学堂登录状态");
-                        handler.postDelayed(autoSyncRunnable, 450);
+                        // 智播课程页是 SPA，登录回跳后给页面和 Cookie 一点时间完成初始化。
+                        handler.postDelayed(autoSyncRunnable, 1200);
                     } else {
                         statusText.setText("正在完成智播学堂统一认证");
                     }
@@ -661,6 +791,20 @@ public class ImportActivity extends Activity {
                 && LIVE_HOST.equalsIgnoreCase(uri.getHost());
     }
 
+    private String readNativeLiveToken() {
+        String cookies = CookieManager.getInstance().getCookie(LIVE_HOME);
+        if (cookies == null || cookies.trim().isEmpty()) return "";
+        String[] names = new String[]{"_token", "token"};
+        for (String name : names) {
+            String prefix = name + "=";
+            for (String part : cookies.split(";")) {
+                String cookie = part == null ? "" : part.trim();
+                if (cookie.startsWith(prefix)) return cookie.substring(prefix.length());
+            }
+        }
+        return "";
+    }
+
     private String liveLoginUrl() {
         return LIVE_CAS + Uri.encode(LIVE_HOME);
     }
@@ -709,10 +853,12 @@ public class ImportActivity extends Activity {
                 boolean authRequired = result.optBoolean("authRequired", false);
                 String message = result.optString("message", "直播课堂同步未完成");
                 syncInProgress = false;
-                if (authRequired && !liveLoginLaunched) {
-                    liveLoginLaunched = true;
+                if (authRequired && liveLoginAttempts < 2) {
+                    liveLoginAttempts++;
+                    liveRetryCount = 0;
                     statusText.setText("正在通过统一认证登录智播学堂");
                     handler.removeCallbacks(autoSyncRunnable);
+                    CookieManager.getInstance().flush();
                     webView.loadUrl(liveLoginUrl());
                     return;
                 }
@@ -743,7 +889,7 @@ public class ImportActivity extends Activity {
         if (liveRetryCount <= 4 && isTrustedLivePage()) {
             statusText.setText("直播课堂同步未完成，正在重试");
             showSyncOverlay("正在重试直播课堂", "智播学堂暂时没有返回完整数据…");
-            handler.postDelayed(autoSyncRunnable, 900);
+            handler.postDelayed(autoSyncRunnable, 1400);
             return;
         }
         finishLiveImport(false, message);
