@@ -61,7 +61,7 @@ public class ImportActivity extends Activity {
     private static final int STAGE_LIVE = 1;
     private static final String LIVE_DESKTOP_UA =
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
-            "(KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36 WhutTimetable/1.6.7";
+            "(KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36 WhutTimetable/1.6.8";
 
     private WebView webView;
     private TextView statusText;

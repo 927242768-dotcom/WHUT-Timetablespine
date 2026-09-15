@@ -6,7 +6,7 @@ const vm = require('vm');
 const appPath = path.join(__dirname, '..', 'app', 'src', 'main', 'assets', 'app.js');
 const originalSource = fs.readFileSync(appPath, 'utf8');
 const tail = '  initializeSelection();applyAppearance();bindEvents();renderAll();syncNativeSnapshot();\n})();';
-const injectedTail = '  window.__testHooks={findScheduleForDate,upcomingStudyItems,studyDayLabel,currentWeekLoads,renderToday,renderExams,itemsFor,courseDateFor,liveDateLabel,memoItemsFor,saveMemoItems};\n})();';
+const injectedTail = '  window.__testHooks={findScheduleForDate,findCurrentWeekIndex,dayForSchedule,initializeSelection,upcomingStudyItems,studyDayLabel,currentWeekLoads,renderToday,renderExams,itemsFor,courseDateFor,liveDateLabel,memoItemsFor,saveMemoItems,getSelectionState:()=>({activeWeekIndex,selectedDayIndex,selectedDate:selectedDate()})};\n})();';
 assert(originalSource.includes(tail), '无法注入 app.js 测试钩子');
 const source = originalSource.replace(tail, injectedTail);
 
@@ -92,6 +92,22 @@ function boot(fixture) {
 
 function textOfChildren(element) {
   return element.children.map(child => child.innerHTML || child.textContent || '').join('\n');
+}
+
+// 回归：服务器仍把 9/7 所在周标成 curWeek 时，App 必须优先使用手机真实日期 9/15 定位到第二周周二。
+{
+  const fixture = makeFixture();
+  fixture.weekSchedules[0].week.curWeek = true;
+  fixture.weekSchedules.push({
+    week: { serialNumber: 2, name: '第2周', startDate: '2026-09-14', endDate: '2026-09-20', curWeek: false },
+    items: [
+      { courseName: '第二周周二课程', dayOfWeek: 2, beginSection: 1, endSection: 2, beginTime: '08:00', endTime: '09:35' }
+    ]
+  });
+  const { hooks } = boot(fixture);
+  const now = new Date(2026, 8, 15, 10, 0, 0);
+  assert.strictEqual(hooks.findCurrentWeekIndex(now), 1);
+  assert.strictEqual(hooks.dayForSchedule(fixture.weekSchedules[1], now), 2);
 }
 
 // 场景 A：9/1 不属于第一教学周；Today 不得把 9/7 冒充今天。

@@ -187,6 +187,21 @@ public class MainActivity extends Activity {
         );
     }
 
+    /** 每次 App 回到前台时，都按手机当前日期重新定位教学周和星期。 */
+    private void refreshCurrentDate() {
+        if (!pageReady || webView == null) return;
+        webView.evaluateJavascript(
+                "window.WhutSchedule && window.WhutSchedule.refreshCurrentDate && window.WhutSchedule.refreshCurrentDate();",
+                null
+        );
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        refreshCurrentDate();
+    }
+
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);

@@ -178,6 +178,17 @@ async function inspectScreen(cdp, screen) {
     await cdp.open();
     await cdp.call('Page.enable');
     await cdp.call('Runtime.enable');
+    await cdp.call('Page.addScriptToEvaluateOnNewDocument', { source: `
+      (() => {
+        const RealDate = Date;
+        const fixedNow = new RealDate(2026, 8, 1, 14, 0, 0).getTime();
+        class FixedDate extends RealDate {
+          constructor(...args) { super(...(args.length ? args : [fixedNow])); }
+          static now() { return fixedNow; }
+        }
+        window.Date = FixedDate;
+      })();
+    ` });
     await cdp.call('Page.navigate', { url: appUrl });
     for (let i = 0; i < 40; i++) {
       if (await evaluate(cdp, 'document.readyState')) break;
